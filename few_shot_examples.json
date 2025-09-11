@@ -1,0 +1,32 @@
+[
+  {
+    "description": "SDB 컴포넌트 추가 예제",
+    "input": "새로운 사용자 등록 화면을 위한 SDB를 추가해주세요.",
+    "output": "UserRegistrationSDB 클래스를 생성하고, 필요한 필드(username, email, password)와 검증 로직을 포함합니다.",
+    "file_patterns": ["**/sdb/*.java", "**/model/*.java"],
+    "modification_example": {
+      "before": "public class SDBManager {\n    private List<SDB> sdbList = new ArrayList<>();\n}",
+      "after": "public class SDBManager {\n    private List<SDB> sdbList = new ArrayList<>();\n    \n    public void registerUserRegistrationSDB() {\n        sdbList.add(new UserRegistrationSDB());\n    }\n}"
+    }
+  },
+  {
+    "description": "SDB 필드 추가 예제",
+    "input": "기존 ProductSDB에 재고 수량 필드를 추가해주세요.",
+    "output": "ProductSDB 클래스에 stockQuantity 필드와 getter/setter를 추가합니다.",
+    "file_patterns": ["**/ProductSDB.java"],
+    "modification_example": {
+      "before": "public class ProductSDB extends BaseSDB {\n    private String productName;\n    private double price;\n}",
+      "after": "public class ProductSDB extends BaseSDB {\n    private String productName;\n    private double price;\n    private int stockQuantity;\n    \n    public int getStockQuantity() {\n        return stockQuantity;\n    }\n    \n    public void setStockQuantity(int stockQuantity) {\n        this.stockQuantity = stockQuantity;\n    }\n}"
+    }
+  },
+  {
+    "description": "SDB 검증 로직 추가 예제",
+    "input": "OrderSDB에 주문 금액 검증 로직을 추가해주세요.",
+    "output": "OrderSDB의 validate() 메서드에 주문 금액이 0보다 큰지 확인하는 로직을 추가합니다.",
+    "file_patterns": ["**/OrderSDB.java"],
+    "modification_example": {
+      "before": "public boolean validate() {\n    return orderItems != null && !orderItems.isEmpty();\n}",
+      "after": "public boolean validate() {\n    if (orderItems == null || orderItems.isEmpty()) {\n        return false;\n    }\n    \n    double totalAmount = calculateTotalAmount();\n    if (totalAmount <= 0) {\n        return false;\n    }\n    \n    return true;\n}"
+    }
+  }
+]

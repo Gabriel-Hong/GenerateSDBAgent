@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  sdb-agent:
+    build: .
+    container_name: sdb-generation-agent
+    ports:
+      - "5000:5000"
+    environment:
+      # Flask 설정
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      
+      # Bitbucket 설정 (실제 값으로 교체 필요)
+      - BITBUCKET_URL=https://bitbucket.org
+      - BITBUCKET_USERNAME=${BITBUCKET_USERNAME}
+      - BITBUCKET_APP_PASSWORD=${BITBUCKET_APP_PASSWORD}
+      - WORKSPACE=${BITBUCKET_WORKSPACE}
+      - REPOSITORY_SLUG=${BITBUCKET_REPOSITORY}
+      
+      # OpenAI 설정 (선택사항)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4-turbo-preview
+      
+    volumes:
+      # 개발 중 코드 변경사항 실시간 반영
+      - ./app:/app/app
+      - ./few_shot_examples.json:/app/few_shot_examples.json
+      
+    restart: unless-stopped
+    
+    # 헬스체크
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 개발용 ngrok (선택사항 - 로컬에서 webhook 테스트용)
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: sdb-agent-ngrok
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command: http sdb-agent:5000
+    depends_on:
+      - sdb-agent
+    profiles:
+      - development

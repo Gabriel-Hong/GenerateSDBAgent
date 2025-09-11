@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  sdb-agent:
+    build: .
+    container_name: sdb-generation-agent
+    networks:
+      - sdb-network
+    ports:
+      - "5000:5000"
+    environment:
+      # Flask 설정
+      - FLASK_ENV=production
+      - FLASK_DEBUG=0
+      
+      # Bitbucket 설정
+      - BITBUCKET_URL=https://bitbucket.org
+      - BITBUCKET_USERNAME=${BITBUCKET_USERNAME}
+      - BITBUCKET_APP_PASSWORD=${BITBUCKET_APP_PASSWORD}
+      - WORKSPACE=${BITBUCKET_WORKSPACE}
+      - REPOSITORY_SLUG=${BITBUCKET_REPOSITORY}
+      
+      # OpenAI 설정
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4-turbo-preview
+      
+    volumes:
+      - ./app:/app/app
+      - ./few_shot_examples.json:/app/few_shot_examples.json
+      
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Cloudflare Tunnel - 방법 1: Quick Tunnel (임시 URL)
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    container_name: sdb-agent-tunnel-quick
+    networks:
+      - sdb-network
+    command: tunnel --no-autoupdate --url http://sdb-agent:5000
+    depends_on:
+      - sdb-agent
+    restart: unless-stopped
+    profiles:
+      - quick
+
+  # Cloudflare Tunnel - 방법 2: Named Tunnel (고정 URL)
+  cloudflared-named:
+    image: cloudflare/cloudflared:latest
+    container_name: sdb-agent-tunnel-named
+    networks:
+      - sdb-network
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - sdb-agent
+    restart: unless-stopped
+    profiles:
+      - named
+    environment:
+      - TUNNEL_URL=http://sdb-agent:5000
+
+networks:
+  sdb-network:
+    driver: bridge
