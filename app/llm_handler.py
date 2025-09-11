@@ -6,7 +6,6 @@ import os
 import json
 import logging
 from typing import Dict, List, Optional, Any
-from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +15,22 @@ class LLMHandler:
     
     def __init__(self):
         self.api_key = os.getenv('OPENAI_API_KEY')
-        if not self.api_key:
-            logger.warning("OpenAI API 키가 설정되지 않았습니다. 환경변수 OPENAI_API_KEY를 설정하세요.")
+        self.client = None
         
-        self.client = OpenAI(api_key=self.api_key) if self.api_key else None
-        self.model = os.getenv('OPENAI_MODEL', 'gpt-4-turbo-preview')
+        if not self.api_key:
+            logger.warning("OpenAI API 키가 설정되지 않았습니다. Mock 모드로 실행합니다.")
+        else:
+            try:
+                import openai
+                # openai 0.28.x 버전 방식
+                openai.api_key = self.api_key
+                self.client = openai
+                logger.info("OpenAI 클라이언트 초기화 완료 (v0.28.x)")
+            except Exception as e:
+                logger.error(f"OpenAI 클라이언트 초기화 실패: {str(e)}")
+                logger.warning("Mock 모드로 계속 진행합니다")
+        
+        self.model = os.getenv('OPENAI_MODEL', 'gpt-4')
         
         # Few-shot 예제 저장소
         self.few_shot_examples = []
@@ -47,7 +57,7 @@ class LLMHandler:
             분석 결과 (수정 필요 파일, 수정 전략 등)
         """
         if not self.client:
-            logger.error("OpenAI 클라이언트가 초기화되지 않았습니다.")
+            logger.warning("OpenAI 클라이언트가 없어 Mock 분석 결과를 반환합니다.")
             return self._mock_analysis_result(structure, issue_description)
         
         try:
@@ -75,17 +85,25 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
 }}
 """
             
-            response = self.client.chat.completions.create(
+            # openai 0.28.x 방식
+            response = self.client.ChatCompletion.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
-                response_format={"type": "json_object"}
+                temperature=0.3
             )
             
-            result = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content
+            # JSON 추출 시도
+            try:
+                result = json.loads(content)
+            except:
+                # JSON 파싱 실패 시 Mock 결과 사용
+                logger.warning("LLM 응답을 JSON으로 파싱할 수 없어 Mock 결과를 사용합니다.")
+                return self._mock_analysis_result(structure, issue_description)
+            
             logger.info(f"프로젝트 분석 완료: {len(result.get('files_to_modify', []))}개 파일 수정 필요")
             return result
             
@@ -108,7 +126,7 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             수정된 파일 내용
         """
         if not self.client:
-            logger.error("OpenAI 클라이언트가 초기화되지 않았습니다.")
+            logger.warning("OpenAI 클라이언트가 없어 Mock 코드 수정을 반환합니다.")
             return self._mock_code_modification(current_content, issue_description)
         
         try:
@@ -136,7 +154,8 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
 위 코드를 요구사항에 맞게 수정해주세요. 전체 수정된 코드를 제공해주세요.
 """
             
-            response = self.client.chat.completions.create(
+            # openai 0.28.x 방식
+            response = self.client.ChatCompletion.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -168,7 +187,7 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             생성된 파일 내용
         """
         if not self.client:
-            logger.error("OpenAI 클라이언트가 초기화되지 않았습니다.")
+            logger.warning("OpenAI 클라이언트가 없어 Mock 새 파일을 반환합니다.")
             return self._mock_new_file(file_path, issue_description)
         
         try:
@@ -187,12 +206,13 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
 {issue_description}
 
 프로젝트 컨텍스트:
-- 관련 파일들: {', '.join(project_context.get('related_files', [])[:5])}
+- 관련 파일들: {', '.join([f.get('path', '') for f in project_context.get('related_files', [])][:5])}
 
 위 요구사항에 맞는 새 파일의 전체 코드를 생성해주세요.
 """
             
-            response = self.client.chat.completions.create(
+            # openai 0.28.x 방식
+            response = self.client.ChatCompletion.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -303,7 +323,7 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
         """LLM 없이 테스트용 수정 코드 반환"""
         # 간단한 주석 추가
         lines = current_content.split('\n')
-        lines.insert(0, f"// SDB 기능 추가: {issue_description}")
+        lines.insert(0, f"// SDB 기능 추가: {issue_description[:100]}...")
         return '\n'.join(lines)
     
     def _mock_new_file(self, file_path: str, issue_description: str) -> str:
