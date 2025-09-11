@@ -135,5 +135,6 @@ def manual_process_issue():
 
 
 if __name__ == '__main__':
-    # 개발 서버 실행
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Railway 프로덕션 환경용 포트 설정
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
