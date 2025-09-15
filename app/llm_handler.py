@@ -21,16 +21,21 @@ class LLMHandler:
             logger.warning("OpenAI API 키가 설정되지 않았습니다. Mock 모드로 실행합니다.")
         else:
             try:
-                import openai
-                # openai 0.28.x 버전 방식
-                openai.api_key = self.api_key
-                self.client = openai
-                logger.info("OpenAI 클라이언트 초기화 완료 (v0.28.x)")
+                from openai import OpenAI
+                # OpenAI 1.x 버전 방식
+                self.client = OpenAI(
+                    api_key=self.api_key,
+                    timeout=60.0  # 60초 타임아웃
+                )
+                logger.info("OpenAI 클라이언트 초기화 완료 (v1.x)")
             except Exception as e:
                 logger.error(f"OpenAI 클라이언트 초기화 실패: {str(e)}")
                 logger.warning("Mock 모드로 계속 진행합니다")
         
-        self.model = os.getenv('OPENAI_MODEL', 'gpt-4')
+        self.model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+        
+        # 최대 토큰 수 설정
+        self.max_tokens = int(os.getenv('OPENAI_MAX_TOKENS', '4000'))
         
         # Few-shot 예제 저장소
         self.few_shot_examples = []
@@ -85,14 +90,15 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
 }}
 """
             
-            # openai 0.28.x 방식
-            response = self.client.ChatCompletion.create(
+            # OpenAI 1.x 방식
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3
+                temperature=0.3,
+                max_tokens=self.max_tokens
             )
             
             content = response.choices[0].message.content
@@ -108,7 +114,15 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             return result
             
         except Exception as e:
-            logger.error(f"프로젝트 분석 중 오류: {str(e)}")
+            from openai import APIError, RateLimitError, APITimeoutError
+            if isinstance(e, RateLimitError):
+                logger.error(f"OpenAI API 사용량 한도 초과: {str(e)}")
+            elif isinstance(e, APITimeoutError):
+                logger.error(f"OpenAI API 타임아웃: {str(e)}")
+            elif isinstance(e, APIError):
+                logger.error(f"OpenAI API 오류: {str(e)}")
+            else:
+                logger.error(f"프로젝트 분석 중 예상치 못한 오류: {str(e)}")
             return self._mock_analysis_result(structure, issue_description)
     
     def generate_code_modification(self, file_path: str, current_content: str, 
@@ -154,14 +168,15 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
 위 코드를 요구사항에 맞게 수정해주세요. 전체 수정된 코드를 제공해주세요.
 """
             
-            # openai 0.28.x 방식
-            response = self.client.ChatCompletion.create(
+            # OpenAI 1.x 방식
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2
+                temperature=0.2,
+                max_tokens=self.max_tokens
             )
             
             # 응답에서 코드 추출
@@ -170,7 +185,15 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             return modified_code
             
         except Exception as e:
-            logger.error(f"코드 수정 중 오류: {str(e)}")
+            from openai import APIError, RateLimitError, APITimeoutError
+            if isinstance(e, RateLimitError):
+                logger.error(f"OpenAI API 사용량 한도 초과: {str(e)}")
+            elif isinstance(e, APITimeoutError):
+                logger.error(f"OpenAI API 타임아웃: {str(e)}")
+            elif isinstance(e, APIError):
+                logger.error(f"OpenAI API 오류: {str(e)}")
+            else:
+                logger.error(f"코드 수정 중 예상치 못한 오류: {str(e)}")
             return self._mock_code_modification(current_content, issue_description)
     
     def generate_new_file(self, file_path: str, issue_description: str, 
@@ -211,14 +234,15 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
 위 요구사항에 맞는 새 파일의 전체 코드를 생성해주세요.
 """
             
-            # openai 0.28.x 방식
-            response = self.client.ChatCompletion.create(
+            # OpenAI 1.x 방식
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3
+                temperature=0.3,
+                max_tokens=self.max_tokens
             )
             
             new_code = self._extract_code_from_response(response.choices[0].message.content)
@@ -226,7 +250,15 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             return new_code
             
         except Exception as e:
-            logger.error(f"새 파일 생성 중 오류: {str(e)}")
+            from openai import APIError, RateLimitError, APITimeoutError
+            if isinstance(e, RateLimitError):
+                logger.error(f"OpenAI API 사용량 한도 초과: {str(e)}")
+            elif isinstance(e, APITimeoutError):
+                logger.error(f"OpenAI API 타임아웃: {str(e)}")
+            elif isinstance(e, APIError):
+                logger.error(f"OpenAI API 오류: {str(e)}")
+            else:
+                logger.error(f"새 파일 생성 중 예상치 못한 오류: {str(e)}")
             return self._mock_new_file(file_path, issue_description)
     
     def summarize_issue(self, issue: Dict) -> str:

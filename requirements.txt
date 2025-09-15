@@ -8,8 +8,8 @@ gunicorn==21.2.0
 # HTTP 요청 처리
 requests==2.31.0
 
-# OpenAI API (LLM 사용) - 안정적인 구 버전
-openai==0.28.1
+# OpenAI API (LLM 사용) - 최신 버전
+openai>=1.35.0
 
 # 환경 변수 관리
 python-dotenv==1.0.0

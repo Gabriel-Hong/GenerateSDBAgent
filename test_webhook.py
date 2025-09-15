@@ -7,8 +7,8 @@ import requests
 import json
 from datetime import datetime
 
-# Flask 앱 URL (로컬 또는 ngrok URL로 변경)
-BASE_URL = "http://localhost:5000"
+# Flask 앱 URL (Railway에 배포된 URL)
+BASE_URL = "https://generatesdbagent-production.up.railway.app"
 
 def test_health_check():
     """헬스 체크 테스트"""

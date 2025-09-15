@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 BITBUCKET_URL = os.getenv('BITBUCKET_URL', 'https://bitbucket.org')
 BITBUCKET_USERNAME = os.getenv('BITBUCKET_USERNAME')
 BITBUCKET_APP_PASSWORD = os.getenv('BITBUCKET_APP_PASSWORD')
-REPOSITORY_SLUG = os.getenv('REPOSITORY_SLUG')
-WORKSPACE = os.getenv('WORKSPACE')
+REPOSITORY_SLUG = os.getenv('BITBUCKET_REPOSITORY', 'egen_kr')
+WORKSPACE = os.getenv('BITBUCKET_WORKSPACE', 'mit_dev')
 
 # API 클라이언트 초기화
 bitbucket_api = BitbucketAPI(
