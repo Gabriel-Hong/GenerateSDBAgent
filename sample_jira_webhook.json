@@ -1,0 +1,186 @@
+{
+  "timestamp": 1726398000000,
+  "webhookEvent": "jira:issue_created",
+  "issue_event_type_name": "issue_created",
+  "user": {
+    "self": "https://your-domain.atlassian.net/rest/api/2/user?accountId=123456",
+    "accountId": "123456",
+    "displayName": "개발자",
+    "active": true
+  },
+  "issue": {
+    "id": "12345",
+    "self": "https://your-domain.atlassian.net/rest/api/2/issue/12345",
+    "key": "SDB-123",
+    "fields": {
+      "issuetype": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/issuetype/10001",
+        "id": "10001",
+        "description": "SDB 개발 요청 이슈 타입",
+        "iconUrl": "https://your-domain.atlassian.net/secure/viewavatar?size=xsmall&avatarId=10318&avatarType=issuetype",
+        "name": "SDB 개발 요청",
+        "subtask": false
+      },
+      "timespent": null,
+      "project": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/project/10000",
+        "id": "10000",
+        "key": "SDB",
+        "name": "SDB 프로젝트",
+        "avatarUrls": {
+          "48x48": "https://your-domain.atlassian.net/secure/projectavatar?size=large&pid=10000",
+          "24x24": "https://your-domain.atlassian.net/secure/projectavatar?size=small&pid=10000",
+          "16x16": "https://your-domain.atlassian.net/secure/projectavatar?size=xsmall&pid=10000",
+          "32x32": "https://your-domain.atlassian.net/secure/projectavatar?size=medium&pid=10000"
+        }
+      },
+      "fixVersions": [],
+      "aggregatetimespent": null,
+      "resolution": null,
+      "customfield_10028": null,
+      "customfield_10029": null,
+      "resolutiondate": null,
+      "workratio": -1,
+      "lastViewed": null,
+      "watches": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/issue/SDB-123/watchers",
+        "watchCount": 1,
+        "isWatching": true
+      },
+      "created": "2025-09-15T10:00:00.000+0900",
+      "customfield_10020": null,
+      "customfield_10021": null,
+      "customfield_10022": null,
+      "priority": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/priority/3",
+        "iconUrl": "https://your-domain.atlassian.net/images/icons/priorities/medium.svg",
+        "name": "Medium",
+        "id": "3"
+      },
+      "customfield_10023": null,
+      "customfield_10024": null,
+      "customfield_10025": null,
+      "labels": ["sdb", "development"],
+      "customfield_10016": null,
+      "customfield_10017": null,
+      "customfield_10018": {
+        "hasEpicLinkFieldDependency": false,
+        "showField": false,
+        "nonEditableReason": {
+          "reason": "PLUGIN_LICENSE_ERROR",
+          "message": "Portfolio for Jira must be licensed for the Parent Link to be available."
+        }
+      },
+      "customfield_10019": "0|i00007:",
+      "timeestimate": null,
+      "aggregatetimeoriginalestimate": null,
+      "versions": [],
+      "issuelinks": [],
+      "assignee": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/user?accountId=123456",
+        "accountId": "123456",
+        "avatarUrls": {
+          "48x48": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-5.png",
+          "24x24": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-1.png",
+          "16x16": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-0.png",
+          "32x32": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-2.png"
+        },
+        "displayName": "개발자",
+        "active": true
+      },
+      "updated": "2025-09-15T10:00:00.000+0900",
+      "status": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/status/10000",
+        "description": "",
+        "iconUrl": "https://your-domain.atlassian.net/",
+        "name": "To Do",
+        "id": "10000",
+        "statusCategory": {
+          "self": "https://your-domain.atlassian.net/rest/api/2/statuscategory/2",
+          "id": 2,
+          "key": "new",
+          "colorName": "blue-gray",
+          "name": "새로 만들어짐"
+        }
+      },
+      "components": [],
+      "timeoriginalestimate": null,
+      "description": {
+        "version": 1,
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "사용자 관리 기능에 SDB(Single Database) 기능을 추가해주세요.\n\n요구사항:\n1. 사용자 정보를 하나의 데이터베이스에 통합 저장\n2. 사용자 조회, 추가, 수정, 삭제 기능 구현\n3. RESTful API 엔드포인트 제공\n4. 데이터 검증 및 에러 처리 포함\n\n기술 스택:\n- Java Spring Boot\n- JPA/Hibernate\n- MySQL 데이터베이스\n- RESTful API\n\n참고사항:\n- 기존 코드와의 호환성 유지\n- 단위 테스트 포함\n- API 문서 자동 생성"
+              }
+            ]
+          }
+        ]
+      },
+      "customfield_10010": null,
+      "customfield_10014": null,
+      "timetracking": {},
+      "customfield_10015": null,
+      "customfield_10005": null,
+      "customfield_10006": null,
+      "customfield_10007": null,
+      "security": null,
+      "customfield_10008": null,
+      "aggregatetimeestimate": null,
+      "customfield_10009": null,
+      "summary": "사용자 관리 SDB 기능 개발",
+      "creator": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/user?accountId=123456",
+        "accountId": "123456",
+        "avatarUrls": {
+          "48x48": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-5.png",
+          "24x24": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-1.png",
+          "16x16": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-0.png",
+          "32x32": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-2.png"
+        },
+        "displayName": "개발자",
+        "active": true
+      },
+      "subtasks": [],
+      "reporter": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/user?accountId=123456",
+        "accountId": "123456",
+        "avatarUrls": {
+          "48x48": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-5.png",
+          "24x24": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-1.png",
+          "16x16": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-0.png",
+          "32x32": "https://secure.gravatar.com/avatar/123?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FDV-2.png"
+        },
+        "displayName": "개발자",
+        "active": true
+      },
+      "aggregatetimeoriginalestimate": null,
+      "progress": {
+        "progress": 0,
+        "total": 0
+      },
+      "environment": null,
+      "duedate": null,
+      "comment": {
+        "comments": [],
+        "maxResults": 0,
+        "total": 0,
+        "startAt": 0
+      },
+      "votes": {
+        "self": "https://your-domain.atlassian.net/rest/api/2/issue/SDB-123/votes",
+        "votes": 0,
+        "hasVoted": false
+      },
+      "worklog": {
+        "startAt": 0,
+        "maxResults": 20,
+        "total": 0,
+        "worklogs": []
+      }
+    }
+  }
+}

@@ -7,8 +7,10 @@ import requests
 import base64
 import json
 import logging
+import time
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -16,36 +18,123 @@ logger = logging.getLogger(__name__)
 class BitbucketAPI:
     """Bitbucket REST API 클라이언트"""
     
-    def __init__(self, url: str, username: str, app_password: str, workspace: str, repository: str):
+    def __init__(self, url: str, username: str, access_token: str, workspace: str, repository: str):
         self.base_url = url
-        self.username = username
-        self.app_password = app_password
+        self.username = username  # 호환성을 위해 유지하지만 실제로는 사용하지 않음
+        self.access_token = access_token
         self.workspace = workspace
         self.repository = repository
-        self.auth = (username, app_password)
         
         # API 엔드포인트 설정
         self.api_base = f"{url}/2.0"
         self.repo_base = f"{self.api_base}/repositories/{workspace}/{repository}"
     
-    def create_branch(self, branch_name: str, from_branch: str = "master") -> Dict:
-        """
-        새 브랜치 생성
+    def get_auth_header(self):
+        """Bearer 토큰 인증 헤더 생성"""
+        return {"Authorization": f"Bearer {self.access_token}"}
+    
+    def get_headers(self, additional_headers=None):
+        """기본 헤더와 인증 헤더를 결합"""
+        headers = self.get_auth_header()
+        if additional_headers:
+            headers.update(additional_headers)
+        return headers
+    
+    def retry_on_failure(self, max_retries=3, delay=1):
+        """요청 실패 시 재시도 데코레이터"""
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                for attempt in range(max_retries):
+                    try:
+                        return func(*args, **kwargs)
+                    except requests.exceptions.RequestException as e:
+                        if attempt == max_retries - 1:
+                            raise e
+                        logger.warning(f"Request failed (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                        time.sleep(delay * (2 ** attempt))  # 지수 백오프
+                return None
+            return wrapper
+        return decorator
+    
+    def handle_bitbucket_error(self, response):
+        """Bitbucket API 에러 처리"""
+        if response.status_code == 401:
+            error_msg = "Bitbucket 인증 실패. 토큰을 확인하세요."
+        elif response.status_code == 403:
+            error_msg = "권한 부족. 토큰에 필요한 권한이 있는지 확인하세요."
+        elif response.status_code == 404:
+            error_msg = "요청한 리소스를 찾을 수 없습니다."
+        elif response.status_code == 429:
+            error_msg = "API 호출 한도를 초과했습니다. 잠시 후 다시 시도하세요."
+        else:
+            error_msg = f"API 요청 실패 (HTTP {response.status_code}): {response.text[:200]}"
         
-        Args:
-            branch_name: 생성할 브랜치 이름
-            from_branch: 기준 브랜치 (기본값: master)
-            
-        Returns:
-            생성된 브랜치 정보
-        """
+        logger.error(error_msg)
+        return error_msg
+    
+    def make_bitbucket_request(self, url, method='GET', **kwargs):
+        """Bitbucket API 요청 메서드 - Bearer Token 전용"""
+        headers = kwargs.pop('headers', {})
+        headers.update(self.get_auth_header())
+        
         try:
+            response = requests.request(
+                method=method,
+                url=url,
+                headers=headers,
+                timeout=30,
+                **kwargs
+            )
+            
+            if not response.ok:
+                self.handle_bitbucket_error(response)
+            
+            return response
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Bearer Token 요청 실패: {str(e)}")
+            raise
+    
+    def validate_token(self):
+        """토큰 유효성 검증 (Bearer Token 우선)"""
+        try:
+            # Bearer Token으로 저장소 직접 접근 시도
+            url = f"{self.repo_base}"
+            response = self.make_bitbucket_request(url)
+            
+            if response.status_code == 200:
+                repo_data = response.json()
+                logger.info(f"토큰 검증 성공, 저장소: {repo_data.get('name', 'Unknown')}")
+                return True, repo_data
+            else:
+                logger.error(f"토큰 검증 실패: {response.status_code}")
+                return False, None
+        except Exception as e:
+            logger.error(f"토큰 검증 중 오류: {str(e)}")
+            return False, None
+    
+    def create_branch(self, branch_name: str, from_branch: str = "master") -> Dict:
+        """새 브랜치 생성"""
+        try:
+            logger.info(f"브랜치 생성 시작: {branch_name} (기준: {from_branch})")
+            logger.info(f"API URL: {self.repo_base}")
+            
             # 먼저 기준 브랜치의 최신 커밋 해시를 가져옴
             ref_url = f"{self.repo_base}/refs/branches/{from_branch}"
-            response = requests.get(ref_url, auth=self.auth)
+            logger.info(f"기준 브랜치 확인 URL: {ref_url}")
+            
+            response = self.make_bitbucket_request(ref_url)
+            logger.info(f"기준 브랜치 응답 상태: {response.status_code}")
+            
+            if response.status_code == 404:
+                logger.error(f"기준 브랜치 '{from_branch}'가 존재하지 않습니다.")
+                raise Exception(f"기준 브랜치 '{from_branch}'를 찾을 수 없습니다.")
+            
             response.raise_for_status()
             
             target_hash = response.json()['target']['hash']
+            logger.info(f"기준 커밋 해시: {target_hash}")
             
             # 새 브랜치 생성
             branch_url = f"{self.repo_base}/refs/branches"
@@ -56,9 +145,9 @@ class BitbucketAPI:
                 }
             }
             
-            response = requests.post(
+            response = self.make_bitbucket_request(
                 branch_url,
-                auth=self.auth,
+                method='POST',
                 json=data,
                 headers={'Content-Type': 'application/json'}
             )
@@ -67,6 +156,15 @@ class BitbucketAPI:
             logger.info(f"브랜치 생성 완료: {branch_name}")
             return response.json()
             
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                logger.error(f"인증 실패 (401): Bearer Token이 유효하지 않거나 권한이 부족합니다")
+                logger.error(f"사용된 URL: {ref_url}")
+                logger.error(f"API Token 길이: {len(self.access_token) if self.access_token else 'None'}")
+                logger.error(f"API Token 시작: {self.access_token[:20] if self.access_token else 'None'}...")
+            else:
+                logger.error(f"HTTP 오류: {e.response.status_code} - {e.response.text}")
+            raise
         except Exception as e:
             logger.error(f"브랜치 생성 실패: {str(e)}")
             raise
@@ -84,7 +182,7 @@ class BitbucketAPI:
         """
         try:
             url = f"{self.repo_base}/src/{branch}/{file_path}"
-            response = requests.get(url, auth=self.auth)
+            response = self.make_bitbucket_request(url)
             
             if response.status_code == 404:
                 logger.info(f"파일이 존재하지 않음: {file_path}")
@@ -110,7 +208,7 @@ class BitbucketAPI:
         """
         try:
             url = f"{self.repo_base}/src/{branch}/{path}"
-            response = requests.get(url, auth=self.auth)
+            response = self.make_bitbucket_request(url)
             response.raise_for_status()
             
             return response.json()['values']
@@ -138,7 +236,7 @@ class BitbucketAPI:
             # 부모 커밋이 없으면 현재 브랜치의 최신 커밋을 가져옴
             if not parent_commit:
                 ref_url = f"{self.repo_base}/refs/branches/{branch}"
-                response = requests.get(ref_url, auth=self.auth)
+                response = self.make_bitbucket_request(ref_url)
                 response.raise_for_status()
                 parent_commit = response.json()['target']['hash']
             
@@ -155,9 +253,9 @@ class BitbucketAPI:
                 'parents': parent_commit
             }
             
-            response = requests.post(
+            response = self.make_bitbucket_request(
                 url,
-                auth=self.auth,
+                method='POST',
                 data=data,
                 files=files
             )
@@ -203,9 +301,9 @@ class BitbucketAPI:
                 "close_source_branch": True  # PR 머지 후 소스 브랜치 자동 삭제
             }
             
-            response = requests.post(
+            response = self.make_bitbucket_request(
                 url,
-                auth=self.auth,
+                method='POST',
                 json=data,
                 headers={'Content-Type': 'application/json'}
             )

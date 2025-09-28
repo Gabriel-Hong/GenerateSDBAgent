@@ -1,0 +1,157 @@
+{
+  "timestamp": 1757926727167,
+  "webhookEvent": "jira:issue_created",
+  "issue_event_type_name": "issue_created",
+  "user": {
+    "self": "https://midasitdev.atlassian.net/rest/api/2/user?accountId=5f31f0408d89e3004615cd73",
+    "accountId": "5f31f0408d89e3004615cd73",
+    "avatarUrls": {
+      "48x48": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+      "24x24": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+      "16x16": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+      "32x32": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png"
+    },
+    "displayName": "홍정모",
+    "active": true,
+    "timeZone": "Asia/Seoul",
+    "accountType": "atlassian"
+  },
+  "issue": {
+    "id": "143859",
+    "self": "https://midasitdev.atlassian.net/rest/api/2/143859",
+    "key": "EGENKR-972",
+    "fields": {
+      "statuscategorychangedate": "2025-09-15T17:58:47.214+0900",
+      "priority": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/priority/3",
+        "iconUrl": "https://midasitdev.atlassian.net/images/icons/priorities/medium_new.svg",
+        "name": "높음",
+        "id": "3"
+      },
+      "fixVersions": [],
+      "labels": [],
+      "resolution": null,
+      "lastViewed": null,
+      "aggregatetimeoriginalestimate": null,
+      "timeestimate": null,
+      "versions": [],
+      "issuelinks": [],
+      "assignee": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/user?accountId=5f31f0408d89e3004615cd73",
+        "accountId": "5f31f0408d89e3004615cd73",
+        "avatarUrls": {
+          "48x48": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "24x24": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "16x16": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "32x32": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png"
+        },
+        "displayName": "홍정모",
+        "active": true,
+        "timeZone": "Asia/Seoul",
+        "accountType": "atlassian"
+      },
+      "status": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/status/1",
+        "description": "OPEN",
+        "iconUrl": "https://midasitdev.atlassian.net/images/icons/statuses/open.png",
+        "name": "OPEN",
+        "id": "1",
+        "statusCategory": {
+          "self": "https://midasitdev.atlassian.net/rest/api/2/statuscategory/2",
+          "id": 2,
+          "key": "new",
+          "colorName": "blue-gray",
+          "name": "New"
+        }
+      },
+      "components": [],
+      "aggregatetimeestimate": null,
+      "creator": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/user?accountId=5f31f0408d89e3004615cd73",
+        "accountId": "5f31f0408d89e3004615cd73",
+        "avatarUrls": {
+          "48x48": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "24x24": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "16x16": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "32x32": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png"
+        },
+        "displayName": "홍정모",
+        "active": true,
+        "timeZone": "Asia/Seoul",
+        "accountType": "atlassian"
+      },
+      "subtasks": [],
+      "reporter": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/user?accountId=5f31f0408d89e3004615cd73",
+        "accountId": "5f31f0408d89e3004615cd73",
+        "avatarUrls": {
+          "48x48": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "24x24": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "16x16": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png",
+          "32x32": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/initials/R-5.png"
+        },
+        "displayName": "홍정모",
+        "active": true,
+        "timeZone": "Asia/Seoul",
+        "accountType": "atlassian"
+      },
+      "aggregateprogress": {
+        "progress": 0,
+        "total": 0
+      },
+      "progress": {
+        "progress": 0,
+        "total": 0
+      },
+      "issuetype": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/issuetype/10025",
+        "id": "10025",
+        "description": "New Feature",
+        "iconUrl": "https://midasitdev.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10311?size=medium",
+        "name": "New",
+        "subtask": false,
+        "avatarId": 10311,
+        "hierarchyLevel": 0
+      },
+      "timespent": null,
+      "project": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/project/10038",
+        "id": "10038",
+        "key": "EGENKR",
+        "name": "eGen KR",
+        "projectTypeKey": "software",
+        "simplified": false,
+        "avatarUrls": {
+          "48x48": "https://midasitdev.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10324",
+          "24x24": "https://midasitdev.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10324?size=small",
+          "16x16": "https://midasitdev.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10324?size=xsmall",
+          "32x32": "https://midasitdev.atlassian.net/rest/api/2/universal_avatar/view/type/project/avatar/10324?size=medium"
+        },
+        "projectCategory": {
+          "self": "https://midasitdev.atlassian.net/rest/api/3/projectCategory/10002",
+          "id": "10002",
+          "description": "완전한 형태의 응용 프로그램 개발 프로젝트가 이곳에 해당됩니다.",
+          "name": "MIT Application Software"
+        }
+      },
+      "aggregatetimespent": null,
+      "resolutiondate": null,
+      "workratio": -1,
+      "watches": {
+        "self": "https://midasitdev.atlassian.net/rest/api/2/issue/EGENKR-972/watchers",
+        "watchCount": 0,
+        "isWatching": false
+      },
+      "created": "2025-09-15T17:58:46.931+0900",
+      "updated": "2025-09-15T17:58:46.931+0900",
+      "timeoriginalestimate": null,
+      "description": "SDB 기능 개발 요청입니다. 사용자 관리 기능에 Single Database 통합 관리 기능을 추가해주세요.",
+      "timetracking": {},
+      "security": null,
+      "attachment": [],
+      "summary": "SDB 개발 테스트6",
+      "environment": null,
+      "duedate": null
+    }
+  }
+}
