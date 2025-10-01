@@ -267,7 +267,84 @@ class BitbucketAPI:
         except Exception as e:
             logger.error(f"파일 커밋 실패: {str(e)}")
             raise
-    
+
+    def commit_multiple_files(self, branch: str, file_changes: List[Dict],
+                             message: str, parent_commit: Optional[str] = None) -> Dict:
+        """
+        여러 파일을 한 번에 커밋
+
+        Args:
+            branch: 브랜치 이름
+            file_changes: 파일 변경사항 리스트
+                [
+                    {
+                        "path": "src/main/java/Service.java",
+                        "content": "파일 내용",
+                        "action": "create" or "update" or "delete"
+                    }
+                ]
+            message: 커밋 메시지
+            parent_commit: 부모 커밋 해시 (선택사항)
+
+        Returns:
+            커밋 정보
+        """
+        try:
+            # 부모 커밋이 없으면 현재 브랜치의 최신 커밋을 가져옴
+            if not parent_commit:
+                ref_url = f"{self.repo_base}/refs/branches/{branch}"
+                response = self.make_bitbucket_request(ref_url)
+                response.raise_for_status()
+                parent_commit = response.json()['target']['hash']
+
+            # 여러 파일 커밋
+            url = f"{self.repo_base}/src"
+
+            # 파일들을 form-data로 준비
+            files = {}
+            data = {
+                'message': message,
+                'branch': branch,
+                'parents': parent_commit
+            }
+
+            for file_change in file_changes:
+                file_path = file_change['path']
+                action = file_change.get('action', 'update')
+
+                if action == 'delete':
+                    # 파일 삭제는 빈 내용으로 설정하고 별도 처리 필요
+                    # Bitbucket API에서는 파일 삭제를 위해 다른 방식 사용
+                    logger.warning(f"파일 삭제는 현재 미지원: {file_path}")
+                    continue
+                else:
+                    # 파일 생성/수정
+                    content = file_change['content']
+                    files[file_path] = (file_path, content)
+
+            if not files:
+                logger.warning("커밋할 파일이 없습니다.")
+                return {}
+
+            response = self.make_bitbucket_request(
+                url,
+                method='POST',
+                data=data,
+                files=files
+            )
+            response.raise_for_status()
+
+            commit_data = response.json()
+            file_names = list(files.keys())
+            logger.info(f"다중 파일 커밋 완료: {len(file_names)}개 파일 on {branch}")
+            logger.info(f"커밋된 파일들: {', '.join(file_names[:5])}{'...' if len(file_names) > 5 else ''}")
+
+            return commit_data
+
+        except Exception as e:
+            logger.error(f"다중 파일 커밋 실패: {str(e)}")
+            raise
+
     def create_pull_request(self, source_branch: str, destination_branch: str,
                            title: str, description: str) -> Dict:
         """

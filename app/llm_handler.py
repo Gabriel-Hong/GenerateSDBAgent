@@ -125,49 +125,78 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
                 logger.error(f"프로젝트 분석 중 예상치 못한 오류: {str(e)}")
             return self._mock_analysis_result(structure, issue_description)
     
-    def generate_code_modification(self, file_path: str, current_content: str, 
-                                 issue_description: str, project_context: Dict) -> str:
+    def generate_code_diff(self, file_path: str, current_content: str,
+                          issue_description: str, project_context: Dict) -> List[Dict]:
         """
-        파일 수정 내용 생성
-        
+        파일 수정을 위한 diff 정보 생성 (IDE 스타일)
+
         Args:
             file_path: 파일 경로
             current_content: 현재 파일 내용
             issue_description: 이슈 설명
             project_context: 프로젝트 컨텍스트 정보
-            
+
         Returns:
-            수정된 파일 내용
+            List[Dict]: diff 정보 리스트
+            [
+                {
+                    "line_start": 45,
+                    "line_end": 47,
+                    "action": "replace", # replace, insert, delete
+                    "old_content": "기존 코드",
+                    "new_content": "수정된 코드",
+                    "description": "변경 사유"
+                }
+            ]
         """
         if not self.client:
-            logger.warning("OpenAI 클라이언트가 없어 Mock 코드 수정을 반환합니다.")
-            return self._mock_code_modification(current_content, issue_description)
-        
-        try:
-            # Few-shot 예제 포함
-            few_shot_prompt = self._build_few_shot_prompt()
-            
-            # 시스템 프롬프트
-            system_prompt = f"""당신은 숙련된 소프트웨어 개발자입니다.
-주어진 코드를 요구사항에 맞게 수정해야 합니다.
-코드의 기존 스타일과 구조를 최대한 유지하면서 필요한 부분만 수정하세요.
+            logger.warning("OpenAI 클라이언트가 없어 Mock diff를 반환합니다.")
+            return self._mock_code_diff(current_content, issue_description)
 
-{few_shot_prompt}"""
-            
+        try:
+            # 라인 번호 추가된 코드 생성
+            lines = current_content.split('\n')
+            numbered_content = '\n'.join([f"{i+1:4d}: {line}" for i, line in enumerate(lines)])
+
+            # 시스템 프롬프트
+            system_prompt = """당신은 코드 수정 전문가입니다.
+전체 파일을 재작성하지 말고, 필요한 부분만 diff 형식으로 수정사항을 제안하세요.
+라인 번호를 정확히 참조하여 수정이 필요한 부분만 식별하세요.
+
+응답은 반드시 다음 JSON 형식으로만 제공하세요:
+{
+  "modifications": [
+    {
+      "line_start": 45,
+      "line_end": 47,
+      "action": "replace",
+      "old_content": "기존 코드 그대로 (라인 번호 제외)",
+      "new_content": "수정될 코드",
+      "description": "수정 이유"
+    }
+  ]
+}
+
+action 타입:
+- "replace": 기존 라인들을 새 내용으로 교체
+- "insert": 특정 라인 뒤에 새 내용 삽입
+- "delete": 특정 라인들 삭제"""
+
             # 사용자 프롬프트
             user_prompt = f"""
 파일 경로: {file_path}
-현재 코드:
+현재 코드 (라인 번호 포함):
 ```
-{current_content}
+{numbered_content}
 ```
 
 요구사항:
 {issue_description}
 
-위 코드를 요구사항에 맞게 수정해주세요. 전체 수정된 코드를 제공해주세요.
+위 코드에서 요구사항을 충족하기 위해 수정이 필요한 부분을 diff 형식으로 제안해주세요.
+라인 번호를 정확히 참조하고, old_content에는 라인 번호를 제외한 실제 코드만 포함하세요.
 """
-            
+
             # OpenAI 1.x 방식
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -175,15 +204,37 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,
+                temperature=0.1,
                 max_tokens=self.max_tokens
             )
-            
-            # 응답에서 코드 추출
-            modified_code = self._extract_code_from_response(response.choices[0].message.content)
-            logger.info(f"코드 수정 완료: {file_path}")
-            return modified_code
-            
+
+            content = response.choices[0].message.content
+
+            # JSON 응답 파싱
+            try:
+                # 마크다운 코드 블록에서 JSON 추출
+                if "```json" in content:
+                    json_start = content.find("```json") + 7
+                    json_end = content.find("```", json_start)
+                    json_content = content[json_start:json_end].strip()
+                elif "```" in content:
+                    json_start = content.find("```") + 3
+                    json_end = content.find("```", json_start)
+                    json_content = content[json_start:json_end].strip()
+                else:
+                    json_content = content.strip()
+
+                result = json.loads(json_content)
+                modifications = result.get('modifications', [])
+
+                logger.info(f"코드 diff 생성 완료: {file_path}, {len(modifications)}개 수정사항")
+                return modifications
+
+            except json.JSONDecodeError as e:
+                logger.warning(f"LLM 응답을 JSON으로 파싱할 수 없음: {str(e)}")
+                logger.warning(f"응답 내용: {content[:500]}...")
+                return self._mock_code_diff(current_content, issue_description)
+
         except Exception as e:
             from openai import APIError, RateLimitError, APITimeoutError
             if isinstance(e, RateLimitError):
@@ -193,8 +244,46 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             elif isinstance(e, APIError):
                 logger.error(f"OpenAI API 오류: {str(e)}")
             else:
-                logger.error(f"코드 수정 중 예상치 못한 오류: {str(e)}")
-            return self._mock_code_modification(current_content, issue_description)
+                logger.error(f"코드 diff 생성 중 예상치 못한 오류: {str(e)}")
+            return self._mock_code_diff(current_content, issue_description)
+
+    def apply_diff_to_content(self, content: str, diffs: List[Dict]) -> str:
+        """
+        diff 정보를 실제 코드에 적용
+
+        Args:
+            content: 원본 파일 내용
+            diffs: diff 정보 리스트
+
+        Returns:
+            수정된 파일 내용
+        """
+        lines = content.split('\n')
+
+        # 라인 번호 역순으로 정렬 (뒤에서부터 수정해야 라인 번호가 변경되지 않음)
+        sorted_diffs = sorted(diffs, key=lambda x: x['line_start'], reverse=True)
+
+        for diff in sorted_diffs:
+            line_start = diff['line_start'] - 1  # 0-based index
+            line_end = diff.get('line_end', diff['line_start']) - 1
+            action = diff['action']
+            new_content = diff.get('new_content', '')
+
+            if action == 'replace':
+                # 기존 라인들을 새 내용으로 교체
+                new_lines = new_content.split('\n') if new_content else []
+                lines[line_start:line_end+1] = new_lines
+
+            elif action == 'insert':
+                # 특정 라인 뒤에 새 내용 삽입
+                new_lines = new_content.split('\n') if new_content else []
+                lines[line_end+1:line_end+1] = new_lines
+
+            elif action == 'delete':
+                # 특정 라인들 삭제
+                del lines[line_start:line_end+1]
+
+        return '\n'.join(lines)
     
     def generate_new_file(self, file_path: str, issue_description: str, 
                          project_context: Dict) -> str:
@@ -351,12 +440,18 @@ SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."
             "estimated_complexity": "medium"
         }
     
-    def _mock_code_modification(self, current_content: str, issue_description: str) -> str:
-        """LLM 없이 테스트용 수정 코드 반환"""
-        # 간단한 주석 추가
-        lines = current_content.split('\n')
-        lines.insert(0, f"// SDB 기능 추가: {issue_description[:100]}...")
-        return '\n'.join(lines)
+    def _mock_code_diff(self, current_content: str, issue_description: str) -> List[Dict]:
+        """LLM 없이 테스트용 diff 반환"""
+        return [
+            {
+                "line_start": 1,
+                "line_end": 1,
+                "action": "insert",
+                "old_content": "",
+                "new_content": f"// SDB 기능 추가: {issue_description[:100]}...",
+                "description": "SDB 기능 관련 주석 추가"
+            }
+        ]
     
     def _mock_new_file(self, file_path: str, issue_description: str) -> str:
         """LLM 없이 테스트용 새 파일 내용 반환"""

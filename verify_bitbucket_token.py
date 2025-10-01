@@ -22,7 +22,7 @@ def verify_token():
     # 환경변수에서 설정 읽기
     token = os.getenv('BITBUCKET_ACCESS_TOKEN')
     workspace = os.getenv('BITBUCKET_WORKSPACE', 'mit_dev')
-    repo_slug = os.getenv('BITBUCKET_REPOSITORY', 'egen_kr')
+    repo_slug = os.getenv('BITBUCKET_REPOSITORY', 'genw_new')
     
     if not token:
         print("❌ BITBUCKET_ACCESS_TOKEN 환경변수가 설정되지 않았습니다.")
@@ -60,7 +60,7 @@ def test_modifiy_code_by_LLM(workspace: str, repo_slug: str, headers: dict):
     print(f"저장소: {workspace}/{repo_slug}")
     
     try:
-        file_path = "src/EG_db/ClassMatl.h"
+        file_path = "src/wg_db/MatlDB.h"
         url = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo_slug}/src/master/{file_path}"
         response = requests.get(url, headers=headers, timeout=10)
 

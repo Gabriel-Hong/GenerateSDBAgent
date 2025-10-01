@@ -5,6 +5,7 @@
 import logging
 from typing import Dict, List, Any
 from datetime import datetime
+from app.large_file_handler import LargeFileHandler
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class IssueProcessor:
     def __init__(self, bitbucket_api, llm_handler):
         self.bitbucket_api = bitbucket_api
         self.llm_handler = llm_handler
+        self.large_file_handler = LargeFileHandler(llm_handler)
     
     def process_issue(self, issue: Dict) -> Dict[str, Any]:
         """
@@ -63,11 +65,12 @@ class IssueProcessor:
                 issue_summary
             )
             
-            # 5. 파일 수정 및 커밋
+            # 5. 파일 수정 및 커밋 (한 번에 모든 파일 커밋)
             logger.info("Step 5: 파일 수정 및 커밋 중...")
             modified_files = []
-            
-            # 5-1. 기존 파일 수정
+            file_changes = []  # 커밋할 파일 변경사항 모음
+
+            # 5-1. 기존 파일 수정 (내용만 준비, 아직 커밋하지 않음)
             for file_path in analysis_result.get('files_to_modify', []):
                 try:
                     # 현재 파일 내용 가져오기
@@ -75,34 +78,51 @@ class IssueProcessor:
                     if current_content is None:
                         logger.warning(f"파일을 찾을 수 없음: {file_path}")
                         continue
-                    
-                    # LLM을 통한 코드 수정
-                    modified_content = self.llm_handler.generate_code_modification(
-                        file_path,
-                        current_content,
-                        issue_summary,
-                        {'structure': project_structure}
-                    )
-                    
-                    # 파일 커밋
-                    commit_message = f"[{issue.get('key')}] {file_path} 수정 - SDB 기능 추가"
-                    self.bitbucket_api.commit_file(
-                        branch_name,
-                        file_path,
-                        modified_content,
-                        commit_message
-                    )
-                    
+
+                    # 파일 크기 확인
+                    line_count = len(current_content.split('\n'))
+                    logger.info(f"파일 크기: {line_count} 줄")
+
+                    # LLM을 통한 diff 생성 (대용량 파일은 특수 처리)
+                    if line_count > 5000:
+                        logger.info(f"대용량 파일 감지 ({line_count} 줄). LargeFileHandler 사용")
+                        diffs = self.large_file_handler.process_large_file(
+                            file_path,
+                            current_content,
+                            issue_summary,
+                            {'structure': project_structure}
+                        )
+                    else:
+                        diffs = self.llm_handler.generate_code_diff(
+                            file_path,
+                            current_content,
+                            issue_summary,
+                            {'structure': project_structure}
+                        )
+
+                    # diff를 실제 코드에 적용
+                    modified_content = self.llm_handler.apply_diff_to_content(current_content, diffs)
+
+                    # 커밋할 파일 목록에 추가
+                    file_changes.append({
+                        'path': file_path,
+                        'content': modified_content,
+                        'action': 'update'
+                    })
+
                     modified_files.append({
                         'path': file_path,
-                        'action': 'modified'
+                        'action': 'modified',
+                        'diff_count': len(diffs)
                     })
-                    
+
+                    logger.info(f"파일 수정 준비 완료: {file_path} ({len(diffs)}개 변경사항)")
+
                 except Exception as e:
                     logger.error(f"파일 수정 실패 ({file_path}): {str(e)}")
                     result['errors'].append(f"파일 수정 실패 ({file_path}): {str(e)}")
-            
-            # 5-2. 새 파일 생성
+
+            # 5-2. 새 파일 생성 (내용만 준비, 아직 커밋하지 않음)
             for file_path in analysis_result.get('new_files_needed', []):
                 try:
                     # LLM을 통한 새 파일 생성
@@ -111,25 +131,61 @@ class IssueProcessor:
                         issue_summary,
                         {'structure': project_structure, 'related_files': modified_files}
                     )
-                    
-                    # 파일 커밋
-                    commit_message = f"[{issue.get('key')}] {file_path} 생성 - SDB 기능 추가"
-                    self.bitbucket_api.commit_file(
-                        branch_name,
-                        file_path,
-                        new_content,
-                        commit_message
-                    )
-                    
+
+                    # 커밋할 파일 목록에 추가
+                    file_changes.append({
+                        'path': file_path,
+                        'content': new_content,
+                        'action': 'create'
+                    })
+
                     modified_files.append({
                         'path': file_path,
                         'action': 'created'
                     })
-                    
+
+                    logger.info(f"새 파일 생성 준비 완료: {file_path}")
+
                 except Exception as e:
                     logger.error(f"파일 생성 실패 ({file_path}): {str(e)}")
                     result['errors'].append(f"파일 생성 실패 ({file_path}): {str(e)}")
-            
+
+            # 5-3. 모든 파일 변경사항을 한 번에 커밋
+            if file_changes:
+                try:
+                    commit_message = f"[{issue.get('key')}] {issue.get('fields', {}).get('summary', 'SDB 기능 추가')}"
+
+                    # 전체 변경사항을 한 번에 커밋
+                    self.bitbucket_api.commit_multiple_files(
+                        branch_name,
+                        file_changes,
+                        commit_message
+                    )
+
+                    logger.info(f"모든 파일 변경사항 커밋 완료: {len(file_changes)}개 파일")
+
+                except Exception as e:
+                    logger.error(f"다중 파일 커밋 실패: {str(e)}")
+                    result['errors'].append(f"다중 파일 커밋 실패: {str(e)}")
+
+                    # 커밋 실패 시 개별 커밋으로 폴백
+                    logger.info("개별 파일 커밋으로 폴백 시도...")
+                    for file_change in file_changes:
+                        try:
+                            individual_commit_msg = f"[{issue.get('key')}] {file_change['path']} {file_change['action']}"
+                            self.bitbucket_api.commit_file(
+                                branch_name,
+                                file_change['path'],
+                                file_change['content'],
+                                individual_commit_msg
+                            )
+                            logger.info(f"개별 커밋 성공: {file_change['path']}")
+                        except Exception as individual_error:
+                            logger.error(f"개별 커밋도 실패 ({file_change['path']}): {str(individual_error)}")
+                            result['errors'].append(f"개별 커밋 실패 ({file_change['path']}): {str(individual_error)}")
+            else:
+                logger.warning("커밋할 파일 변경사항이 없습니다.")
+
             result['modified_files'] = modified_files
             
             # 6. Pull Request 생성
