@@ -1,0 +1,43 @@
+{
+  "timestamp": "20251002_144344",
+  "branch": "master",
+  "dry_run": true,
+  "total_files": 4,
+  "success": 0,
+  "failed": 4,
+  "skipped": 0,
+  "results": [
+    {
+      "file_path": "wg_db/DBCodeDef.h",
+      "status": "failed",
+      "error": "파일을 찾을 수 없습니다: wg_db/DBCodeDef.h",
+      "modifications": null,
+      "original_content": null,
+      "modified_content": null
+    },
+    {
+      "file_path": "wg_db/MatlDB.cpp",
+      "status": "failed",
+      "error": "파일을 찾을 수 없습니다: wg_db/MatlDB.cpp",
+      "modifications": null,
+      "original_content": null,
+      "modified_content": null
+    },
+    {
+      "file_path": "wg_db/CDBLib.cpp",
+      "status": "failed",
+      "error": "파일을 찾을 수 없습니다: wg_db/CDBLib.cpp",
+      "modifications": null,
+      "original_content": null,
+      "modified_content": null
+    },
+    {
+      "file_path": "wg_dgn/CDgnDataCtrl.cpp",
+      "status": "failed",
+      "error": "파일을 찾을 수 없습니다: wg_dgn/CDgnDataCtrl.cpp",
+      "modifications": null,
+      "original_content": null,
+      "modified_content": null
+    }
+  ]
+}

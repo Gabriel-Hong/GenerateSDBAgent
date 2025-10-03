@@ -40,7 +40,7 @@ logger.info(f"Flask 애플리케이션 작업 디렉토리: {os.getcwd()}")
 BITBUCKET_URL = os.getenv('BITBUCKET_URL', 'https://api.bitbucket.org')
 BITBUCKET_USERNAME = os.getenv('BITBUCKET_USERNAME', 'api_user')  # Bearer Token 사용시 실제로는 불필요
 BITBUCKET_ACCESS_TOKEN = os.getenv('BITBUCKET_ACCESS_TOKEN')
-REPOSITORY_SLUG = os.getenv('BITBUCKET_REPOSITORY', 'egen_kr')
+REPOSITORY_SLUG = os.getenv('BITBUCKET_REPOSITORY', 'genw_new')
 WORKSPACE = os.getenv('BITBUCKET_WORKSPACE', 'mit_dev')
 
 # 테스트 모드 설정 (환경 변수 TEST_MODE=true 또는 DEBUG 모드에서 활성화)

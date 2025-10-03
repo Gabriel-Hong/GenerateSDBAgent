@@ -44,9 +44,11 @@ class LargeFileHandler:
         logger.info(f"대용량 파일 처리 시작: {file_path} ({len(current_content.split(chr(10)))} 줄)")
 
         # 1. 템플릿 기반 처리 가능 여부 확인
-        if self._is_template_based_task(issue_description):
-            logger.info("템플릿 기반 처리 모드")
-            return self._process_with_template(current_content, issue_description)
+        #if self._is_template_based_task(issue_description):
+        #    logger.info("템플릿 기반 처리 모드")
+        #    return self._process_with_template(current_content, issue_description)
+
+            # 템플릿 기반으로는 처리하지 않고, LLM을 활용해서 처리하는 것으로 함
 
         # 2. 함수 단위로 분할
         functions = self.chunker.extract_functions(current_content)

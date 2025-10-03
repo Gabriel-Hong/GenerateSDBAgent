@@ -65,6 +65,18 @@ class IssueProcessor:
                 issue_summary
             )
             
+                # 4.1 수정해야 하는 부분은 SDB Agent에서는 일단 고정으로 처리
+                # analysis_result를 보고 어떤 방식으로 값을 넣어줘야 하는지 확인하고 처리 필요
+                    # wg_db/MatlDB.h
+                        # GetSteelList_NAME()
+                        # MakeMatlData()
+                    # wg_db/CDBLib.h
+                        # GetDefaultStrlMatl()
+                    # wg_dgn/CDgnDataCtrl
+                        # Get_FyByThick_NAME()
+                        # Get_FyByThick_CODE()
+                        # GetChkKindStlMatl()
+
             # 5. 파일 수정 및 커밋 (한 번에 모든 파일 커밋)
             logger.info("Step 5: 파일 수정 및 커밋 중...")
             modified_files = []
