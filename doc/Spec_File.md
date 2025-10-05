@@ -8,7 +8,7 @@
 
 ## 기본 정보
 
-- **Standard:** SP 16_2017 (L.B3)
+- **Standard:** SP 16_2025 (L.B9)
 - **DB 목록:** C235 / C245 / C255 / C345K / C355 / C355-1; / C355-K / C355П / C390; / C390-1 / C440 / C550 / C590 / C690
 - **Data unit:** Length = mm, Force = N
 

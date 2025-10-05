@@ -1,6 +1,6 @@
 """
 대용량 코드 파일을 효율적으로 처리하기 위한 청크 분할기
-Clang AST 기반 (정규식 폴백 지원)
+Clang AST 기반 (정규식 폴백 지원) - 내용 기반 매칭으로 개선
 C++17 완전 지원
 """
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class ClangASTChunker:
-    """Clang AST를 사용한 정확한 코드 분석"""
+    """Clang AST를 사용한 정확한 코드 분석 (내용 기반 매칭)"""
 
     def __init__(self):
         try:
@@ -104,7 +104,7 @@ class ClangASTChunker:
             self.TranslationUnit = clang.cindex.TranslationUnit
             self.Diagnostic = clang.cindex.Diagnostic
             self.available = True
-            logger.info("✅ Clang AST Parser 초기화 완료 (C++17 지원)")
+            logger.info("✅ Clang AST Parser 초기화 완료 (C++17 지원, 내용 기반 매칭)")
         except ImportError:
             logger.warning("libclang 미설치. 정규식 기반으로 폴백됩니다.")
             logger.warning("설치: pip install libclang")
@@ -118,48 +118,46 @@ class ClangASTChunker:
 
     def extract_functions(self, content: str, file_path: str = None) -> List[Dict]:
         """
-        Clang AST로 함수 추출 (C++17 완전 지원)
+        Clang AST로 함수 추출 (내용 기반 매칭 - 개선됨)
 
         Args:
-            content: 파일 내용
+            content: 원본 파일 내용
             file_path: 파일 경로 (선택적)
 
         Returns:
-            함수 정보 리스트
+            함수 정보 리스트 (정확한 라인 번호 포함)
         """
         if not self.available:
             logger.info("Clang AST 사용 불가. 정규식 폴백")
             return []
 
         try:
-            # 코드 전처리 (클래스 전방 선언 추가)
+            # 1. 원본 파일의 줄별 매핑 생성
+            original_lines = content.splitlines()
+            logger.debug(f"원본 파일: {len(original_lines)}줄")
+            
+            # 2. 코드 전처리 (클래스 전방 선언 추가)
             preprocessed_content = self._preprocess_code_for_parsing(content)
+            preprocessed_lines = preprocessed_content.splitlines()
+            logger.debug(f"전처리 후: {len(preprocessed_lines)}줄 (추가: {len(preprocessed_lines) - len(original_lines)}줄)")
 
-            # 라인 오프셋 계산 (전처리로 추가된 라인 수)
-            line_offset = preprocessed_content.count('\n') - content.count('\n')
-
-            # 임시 파일 생성
+            # 3. 임시 파일 생성 및 파싱
             with tempfile.NamedTemporaryFile(
                 mode='w',
                 suffix='.cpp',
                 delete=False,
                 encoding='utf-8'
             ) as tmp:
-                tmp.write(preprocessed_content)  # 전처리된 내용 사용
+                tmp.write(preprocessed_content)
                 tmp_path = tmp.name
 
-            # 임시 파일 내용 다시 읽기 (Clang 파싱 결과와 동기화)
-            with open(tmp_path, 'r', encoding='utf-8') as f:
-                actual_content = f.read()
-
-            # C++17 파싱 옵션 (libclang 18+ 호환)
+            # C++17 파싱 옵션
             args = [
                 '-x', 'c++',
-                '-std=c++17',  # C++17 완전 지원
+                '-std=c++17',
                 '-DWINDOWS',
                 '-D_UNICODE',
                 '-DUNICODE',
-                # Windows/MFC 타입 정의 (MSVC 헤더 없이도 파싱 가능)
                 '-DBOOL=int',
                 '-DTRUE=1',
                 '-DFALSE=0',
@@ -168,72 +166,65 @@ class ClangASTChunker:
                 '-DAFX_EXT_CLASS=',
                 '-DAFX_DATA=',
                 '-D__declspec(x)=',
-                # 일반적인 Windows 타입들
                 '-DWORD=unsigned int',
                 '-DDWORD=unsigned long',
                 '-DLPCTSTR=const char*',
                 '-DLPCSTR=const char*',
                 '-DLPWSTR=wchar_t*',
                 '-DHANDLE=void*',
-                # 프로젝트 특화 타입들
                 '-DT_UNIT_INDEX=int',
                 '-DT_MATL_LIST_STEEL=void*',
                 '-DCString=void*',
                 '-DCStringArray=void*',
-                # STL 버전 불일치 경고 무시 (libclang 18에서 MSVC STL 호환)
                 '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH',
-                # 모든 경고 억제 (파싱에만 집중)
                 '-Wno-everything',
-                # 시스템 헤더 스킵 (속도 향상 및 호환성 개선)
                 '-nostdinc++',
                 '-nobuiltininc',
-                # 추가 호환성 플래그
-                '-fms-extensions',  # MSVC 확장 허용
-                '-fms-compatibility',  # MSVC 호환 모드
-                '-fsyntax-only',  # 문법만 확인 (코드 생성 스킵)
+                '-fms-extensions',
+                '-fms-compatibility',
+                '-fsyntax-only',
             ]
 
-            # 파일 파싱
-            # 주의: PARSE_SKIP_FUNCTION_BODIES 옵션을 사용하면
-            # 클래스 외부 정의 (CMatlDB::Method)가 is_definition()=False가 되어 추출되지 않음
-            tu = self.index.parse(
-                tmp_path,
-                args=args
-                # options=self.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES  # 제거
-            )
+            # 4. Clang AST 파싱
+            tu = self.index.parse(tmp_path, args=args)
 
-            # 파싱 에러 확인 (치명적 에러만 로깅)
+            # 파싱 에러 확인
             error_count = 0
             critical_errors = []
             for diag in tu.diagnostics:
                 if diag.severity >= self.Diagnostic.Error:
                     error_count += 1
-                    if error_count <= 5:  # 최대 5개만 로깅
+                    if error_count <= 5:
                         critical_errors.append(diag.spelling)
 
             if critical_errors:
                 logger.warning(f"⚠️  Clang 파싱 에러 {error_count}개 발견:")
-                for err in critical_errors:
+                for err in critical_errors[:5]:
                     logger.warning(f"  - {err}")
                 if error_count > 5:
                     logger.warning(f"  ... 외 {error_count - 5}개 더")
 
-            # 함수 추출
+            # 5. 함수 추출 및 원본 파일에서 매칭
             functions = []
             for cursor in tu.cursor.walk_preorder():
-                if cursor.kind in [
-                    self.CursorKind.FUNCTION_DECL,
-                    self.CursorKind.CXX_METHOD
-                ]:
-                    # 정의가 있는 함수만 (선언만 있는 것 제외)
-                    if cursor.is_definition():
-                        logger.debug(f"함수 발견: {cursor.spelling} (line {cursor.extent.start.line}-{cursor.extent.end.line})")
-                        func_info = self._extract_function_info(cursor, content, tmp_path, line_offset)
-                        if func_info:
-                            functions.append(func_info)
-                            logger.debug(f"함수 추가 성공: {cursor.spelling}")
-                        else:
-                            logger.debug(f"함수 추가 실패: {cursor.spelling}")
+                if cursor.kind in [self.CursorKind.FUNCTION_DECL, self.CursorKind.CXX_METHOD]:
+                    if cursor.is_definition() and cursor.location.file:
+                        # 임시 파일 경로 확인
+                        cursor_file_abs = os.path.abspath(cursor.location.file.name)
+                        tmp_path_abs = os.path.abspath(tmp_path)
+                        
+                        if cursor_file_abs == tmp_path_abs:
+                            # 6. 원본 파일에서 함수 위치 찾기 (내용 기반 매칭)
+                            func_info = self._find_and_extract_function(
+                                cursor, 
+                                original_lines
+                            )
+                            
+                            if func_info:
+                                functions.append(func_info)
+                                logger.info(f"✅ {func_info['name']}: 라인 {func_info['line_start']}-{func_info['line_end']}")
+                            else:
+                                logger.warning(f"❌ {cursor.spelling}: 원본에서 찾지 못함")
 
             # 임시 파일 삭제
             try:
@@ -250,62 +241,85 @@ class ClangASTChunker:
             logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
             return []
 
-    def _extract_function_info(self, cursor, content: str, tmp_path: str, line_offset: int = 0) -> Optional[Dict]:
-        """커서로부터 함수 정보 추출"""
+    def _find_and_extract_function(self, cursor, original_lines: list) -> Optional[Dict]:
+        """
+        Clang cursor로부터 함수 정보 추출 후 원본 파일에서 정확한 위치 찾기
+        
+        Args:
+            cursor: Clang AST cursor
+            original_lines: 원본 파일의 줄 리스트
+            
+        Returns:
+            함수 정보 딕셔너리 (원본 파일 기준 라인 번호 포함)
+        """
         try:
-            # 1. 커서가 현재 파일에 속하는지 확인
-            if cursor.location.file is None:
-                logger.debug(f"❌ [{cursor.spelling}] 파일 정보 없음 (빌트인 함수)")
+            func_name = cursor.spelling
+            if not func_name:
                 return None
-
-            cursor_file = cursor.location.file.name
-            # 임시 파일의 절대 경로와 비교
-            import os
-            cursor_file_abs = os.path.abspath(cursor_file)
-            tmp_path_abs = os.path.abspath(tmp_path)
-            logger.debug(f"[{cursor.spelling}] 파일 경로 비교: cursor={cursor_file_abs}, tmp={tmp_path_abs}")
-            if cursor_file_abs != tmp_path_abs:
-                logger.debug(f"❌ [{cursor.spelling}] 다른 파일의 함수")
+            
+            # 1. 함수 시그니처 패턴 생성
+            # 클래스 메서드인 경우: ClassName::MethodName
+            class_name = self._get_class_name(cursor)
+            if class_name:
+                # 클래스::메서드 패턴
+                signature_pattern = re.compile(
+                    rf'^\s*\w+.*\s+{re.escape(class_name)}::{re.escape(func_name)}\s*\(',
+                    re.MULTILINE
+                )
+            else:
+                # 일반 함수 패턴
+                signature_pattern = re.compile(
+                    rf'^\s*\w+.*\s+{re.escape(func_name)}\s*\(',
+                    re.MULTILINE
+                )
+            
+            # 2. 원본 파일에서 함수 시그니처 찾기
+            line_start = None
+            line_end = None
+            
+            for i, line in enumerate(original_lines):
+                if signature_pattern.search(line):
+                    line_start = i + 1  # 1-based
+                    logger.debug(f"[{func_name}] 시그니처 발견: 라인 {line_start}")
+                    
+                    # 3. 중괄호 카운팅으로 함수 끝 찾기
+                    brace_count = 0
+                    found_opening_brace = False
+                    
+                    for j in range(i, len(original_lines)):
+                        line_content = original_lines[j]
+                        
+                        # 간단한 중괄호 카운팅 (문자열/주석 내 중괄호도 카운트됨)
+                        # 더 정교한 파싱이 필요하면 개선 가능
+                        for char in line_content:
+                            if char == '{':
+                                brace_count += 1
+                                found_opening_brace = True
+                            elif char == '}':
+                                brace_count -= 1
+                        
+                        # 함수가 완전히 닫힘
+                        if found_opening_brace and brace_count == 0:
+                            line_end = j + 1  # 1-based
+                            logger.debug(f"[{func_name}] 함수 끝 발견: 라인 {line_end}")
+                            break
+                    
+                    if line_end:
+                        break
+            
+            if not line_start or not line_end:
+                logger.warning(f"[{func_name}] 원본에서 함수를 찾지 못함")
                 return None
-
-            # 2. 라인 정보 추출 (전처리 오프셋 보정)
-            try:
-                line_start = cursor.extent.start.line - line_offset
-                line_end = cursor.extent.end.line - line_offset
-                logger.debug(f"함수 라인 범위 (보정 후): {line_start}-{line_end}")
-            except Exception as e:
-                logger.warning(f"❌ 라인 정보 추출 실패: {e}")
-                return None
-
-            # 3. 라인 범위 검증
-            lines = content.split('\n')
-            if line_start <= 0 or line_end > len(lines):
-                logger.warning(f"❌ 잘못된 라인 범위: {line_start}-{line_end} (파일: {len(lines)}줄)")
-                return None
-
-            # 4. 함수 본문 추출
-            func_content = '\n'.join(lines[line_start-1:line_end])
-
-            # 5. 함수 이름 추출
-            try:
-                func_name = cursor.spelling
-                if not func_name:
-                    logger.debug(f"❌ 함수 이름 없음 (line {line_start})")
-                    return None
-                logger.debug(f"✅ 함수 이름: {func_name}")
-            except Exception as e:
-                logger.warning(f"❌ 함수 이름 추출 실패: {e}")
-                return None
-
-            # 6. 반환 타입 추출
+            
+            # 4. 함수 내용 추출
+            func_content = '\n'.join(original_lines[line_start-1:line_end])
+            
+            # 5. 추가 메타데이터 추출
             try:
                 return_type = cursor.result_type.spelling if cursor.result_type else ''
-                logger.debug(f"✅ 반환 타입: {return_type}")
-            except Exception as e:
-                logger.warning(f"⚠️  반환 타입 추출 실패: {e}")
+            except:
                 return_type = ''
-
-            # 7. 파라미터 추출
+            
             try:
                 parameters = [
                     {
@@ -314,30 +328,16 @@ class ClangASTChunker:
                     }
                     for arg in cursor.get_arguments()
                 ]
-                logger.debug(f"✅ 파라미터 개수: {len(parameters)}")
-            except Exception as e:
-                logger.warning(f"⚠️  파라미터 추출 실패: {e}")
+            except:
                 parameters = []
-
-            # 8. 클래스 정보 추출
-            try:
-                class_name = self._get_class_name(cursor)
-                if class_name:
-                    logger.debug(f"✅ 클래스: {class_name}")
-            except Exception as e:
-                logger.warning(f"⚠️  클래스 정보 추출 실패: {e}")
-                class_name = None
-
-            # 9. 시그니처 추출
+            
             try:
                 signature = self._get_function_signature(cursor)
-                logger.debug(f"✅ 시그니처: {signature}")
-            except Exception as e:
-                logger.warning(f"⚠️  시그니처 추출 실패: {e}")
-                signature = cursor.displayname if hasattr(cursor, 'displayname') else func_name
-
-            # 10. 최종 결과 반환
-            result = {
+            except:
+                signature = func_name
+            
+            # 6. 결과 반환
+            return {
                 'name': func_name,
                 'qualified_name': cursor.displayname if hasattr(cursor, 'displayname') else func_name,
                 'signature': signature,
@@ -351,13 +351,11 @@ class ClangASTChunker:
                 'class_name': class_name,
                 'parameters': parameters
             }
-            logger.debug(f"✅ 함수 정보 추출 완료: {func_name}")
-            return result
             
         except Exception as e:
-            logger.error(f"❌ 함수 정보 추출 실패 (전체): {e}")
+            logger.error(f"함수 정보 추출 실패: {e}")
             import traceback
-            logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             return None
 
     def _get_function_signature(self, cursor) -> str:
@@ -370,7 +368,7 @@ class ClangASTChunker:
             return_type = cursor.result_type.spelling if cursor.result_type else 'void'
             return f"{return_type} {cursor.spelling}({params})"
         except:
-            return cursor.displayname
+            return cursor.displayname if hasattr(cursor, 'displayname') else ''
 
     def _get_class_name(self, cursor) -> Optional[str]:
         """함수가 속한 클래스 이름"""
@@ -451,7 +449,7 @@ class CodeChunker:
         # Clang AST Chunker 초기화 (실패시 정규식 사용)
         self.clang_chunker = ClangASTChunker()
         if self.clang_chunker.available:
-            logger.info("CodeChunker: Clang AST 모드 활성화 (C++17 지원)")
+            logger.info("CodeChunker: Clang AST 모드 활성화 (C++17 지원, 내용 기반 매칭)")
         else:
             logger.info("CodeChunker: 정규식 모드로 동작")
 
@@ -760,3 +758,4 @@ class TemplateBasedGenerator:
 }}"""
 
         return template
+

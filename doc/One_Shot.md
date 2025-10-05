@@ -15,10 +15,63 @@
 ### 파일 위치
 `wg_db>DBCodeDef.h`
 
-### 구현 내용
+### 정확한 삽입 위치
+파일 내 해당 재질 타입의 `#pragma region` 섹션 안에 추가합니다.
+
+### 재질 타입 식별 방법
+
+**1단계: 매크로 접두사로 재질 타입 판단**
+- `MATLCODE_STL_xxx` → STEEL (철골)
+- `MATLCODE_CON_xxx` → CONCRETE AND REBARS (콘크리트 및 철근)
+- `MATLCODE_ALU_xxx` → ALUMINIUM (알루미늄)
+- `MATLCODE_TIMBER_xxx` → TIMBER (목재)
+
+**2단계: 해당 섹션 찾기**
+파일에서 다음 패턴을 검색:
 ```cpp
-#define MATLCODE_STL_SP16_2017_TB3 _T("SP16.2017t.B3(S)")
+#pragma region /// [ MATL CODE - [타입명] ]
+// ... 여기에 추가 ...
+#pragma endregion
 ```
+
+**예시:**
+- `MATLCODE_STL_SP16_2025_LB9` 추가 시
+  → `#pragma region /// [ MATL CODE - STEEL ]` 섹션 내부에 추가
+- `MATLCODE_CON_GB19` 추가 시
+  → `#pragma region /// [ MATL CODE - CONCRETE AND REBARS ]` 섹션 내부에 추가
+
+### 위치 찾는 방법
+1. 파일에서 `#pragma region /// [ MATL CODE - STEEL ]` 주석 찾기
+2. 해당 섹션 내에서 비슷한 패턴의 코드 그룹 찾기
+3. **동일 시리즈의 마지막 정의 바로 다음 줄에 추가**
+
+### 구현 내용 (컨텍스트 포함)
+
+**예시: SP16.2017 시리즈에 새 재질 추가하는 경우**
+
+```cpp
+// 기존 코드 (SP16.2017 시리즈)
+#define MATLCODE_STL_SP16_2017_TB3 _T("SP16.2017t.B3(S)")
+#define MATLCODE_STL_SP16_2017_TB4 _T("SP16.2017t.B4(S)")
+#define MATLCODE_STL_SP16_2017_TB5 _T("SP16.2017t.B5(S)")
+
+// ↓ 여기에 새 재질 코드 추가! (동일 시리즈의 마지막 다음)
+#define MATLCODE_STL_SP16_2025_LB9 _T("SP16.2025(L.B9)(S)")
+
+// 다음 재질 그룹 (건드리지 않음)
+#define MATLCODE_STL_NR_GN_CIV_025  _T("NR/GN/CIV/025(S)")
+```
+
+**패턴 규칙:**
+- 형식: `#define MATLCODE_STL_[코드명] _T("[표시명](S)")`
+- 들여쓰기: 탭 사용
+- 정렬: 기존 코드와 동일하게 정렬
+- 위치: **반드시** `#pragma region /// [ MATL CODE - STEEL ]`과 `#pragma endregion` 사이
+
+**주의사항:**
+- ❌ Enum 정의 영역에 추가하지 말것 (예: `EN_MGTIDX_CONCODE_...`)
+- ❌ 다른 섹션(WIND, SEISMIC 등)에 추가하지 말것
+- ✅ 반드시 `#pragma region /// [ MATL CODE - STEEL ]` 섹션 내부에만 추가
 
 **설명:** 재질 코드 이름을 정의합니다. 이 매크로는 전체 시스템에서 재질 코드를 식별하는 데 사용됩니다.
 

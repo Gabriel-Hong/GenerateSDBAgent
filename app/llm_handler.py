@@ -32,7 +32,7 @@ class LLMHandler:
                 logger.error(f"OpenAI 클라이언트 초기화 실패: {str(e)}")
                 logger.warning("Mock 모드로 계속 진행합니다")
         
-        self.model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+        self.model = os.getenv('OPENAI_MODEL', 'gpt-4o')
         
         # 최대 토큰 수 설정
         self.max_tokens = int(os.getenv('OPENAI_MAX_TOKENS', '4000'))
@@ -258,7 +258,11 @@ action 타입:
         Returns:
             수정된 파일 내용
         """
-        lines = content.split('\n')
+        # splitlines()를 사용하여 올바르게 줄 분리 (빈 줄 문제 방지)
+        lines = content.splitlines(keepends=False)
+        
+        # 원본의 마지막 줄바꿈 여부 확인
+        ends_with_newline = content.endswith('\n') or content.endswith('\r\n')
 
         # 라인 번호 역순으로 정렬 (뒤에서부터 수정해야 라인 번호가 변경되지 않음)
         sorted_diffs = sorted(diffs, key=lambda x: x['line_start'], reverse=True)
@@ -271,19 +275,26 @@ action 타입:
 
             if action == 'replace':
                 # 기존 라인들을 새 내용으로 교체
-                new_lines = new_content.split('\n') if new_content else []
+                new_lines = new_content.splitlines() if new_content else []
                 lines[line_start:line_end+1] = new_lines
 
             elif action == 'insert':
                 # 특정 라인 뒤에 새 내용 삽입
-                new_lines = new_content.split('\n') if new_content else []
+                new_lines = new_content.splitlines() if new_content else []
                 lines[line_end+1:line_end+1] = new_lines
 
             elif action == 'delete':
                 # 특정 라인들 삭제
                 del lines[line_start:line_end+1]
 
-        return '\n'.join(lines)
+        # 결과를 합칠 때 원본의 줄바꿈 방식 유지
+        result = '\n'.join(lines)
+        
+        # 원본이 줄바꿈으로 끝났다면 마지막에 줄바꿈 추가
+        if ends_with_newline and not result.endswith('\n'):
+            result += '\n'
+        
+        return result
     
     def generate_new_file(self, file_path: str, issue_description: str, 
                          project_context: Dict) -> str:

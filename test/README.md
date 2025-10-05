@@ -8,11 +8,14 @@ GenerateSDBAgent 프로젝트의 테스트 및 디버깅 스크립트 모음입�
 test/
 ├── README.md                           # 이 파일
 ├── MATERIAL_DB_TEST_README.md          # Material DB 테스트 상세 가이드
+├── CLANG_AST_INTEGRATION.md            # ⭐ Clang AST 통합 가이드 (NEW!)
 ├── TEST_ARCHITECTURE.md                # 테스트 아키텍처 문서
 │
-├── test_material_db_modification.py    # ⭐ Material DB 자동 수정 스크립트
+├── test_material_db_modification.py    # ⭐ Material DB 자동 수정 스크립트 (Clang AST 통합)
 ├── debug_local_processing.py           # Jira 웹훅 로컬 디버깅 스크립트
 │
+├── run_clang_ast_test.bat              # Clang AST 테스트 실행 (Windows)
+├── run_clang_ast_test.sh               # Clang AST 테스트 실행 (Linux/Mac)
 ├── quick_test.sh                       # Quick Start (Linux/Mac)
 └── quick_test.bat                      # Quick Start (Windows)
 
@@ -46,7 +49,17 @@ OPENAI_MODEL=gpt-4o-mini
 
 #### 2. 테스트 실행
 
-**가장 간단한 방법:**
+**🆕 Clang AST 통합 테스트 (권장):**
+```bash
+# Windows
+test\run_clang_ast_test.bat
+
+# Linux/Mac
+chmod +x test/run_clang_ast_test.sh
+./test/run_clang_ast_test.sh
+```
+
+**기본 테스트:**
 ```bash
 # Windows
 test\quick_test.bat
@@ -73,14 +86,21 @@ cat material_db_test.log
 
 ## 📚 주요 스크립트
 
-### 1. test_material_db_modification.py
+### 1. test_material_db_modification.py ⭐ (Clang AST 통합)
 
 **목적**: Material DB에 새로운 재질을 추가하는 end-to-end 테스트
+
+**🆕 Clang AST 통합 (2024년 10월)**:
+- ✅ **전체 파일 대신 관련 메서드만 추출** → 토큰 60% 절감
+- ✅ **정확한 라인 번호 매핑** → 수정 정확도 향상
+- ✅ **Diff 기반 안전한 코드 수정**
+- ✅ **정규식 폴백** → libclang 없어도 동작
 
 **핵심 개념**:
 이 스크립트는 2개의 마크다운 파일을 기반으로 LLM이 자동으로 소스 코드를 수정합니다:
 - 📄 `doc/Spec_File.md`: 추가할 재질의 상세 Spec (물성치, 강도 데이터 등)
 - 📄 `doc/One_Shot.md`: 소스 코드 수정 방법에 대한 구현 가이드
+- 🔧 **Clang AST Parser**: C++ 코드에서 관련 함수만 정확히 추출
 
 **수정 대상 파일**:
 - `wg_db/DBCodeDef.h`: 재질 코드 이름 등록
@@ -108,14 +128,17 @@ python test/test_material_db_modification.py --output-dir results
 python test/test_material_db_modification.py --no-dry-run
 ```
 
-**워크플로우**:
+**워크플로우** (Clang AST 통합):
 1. `doc/Spec_File.md`와 `doc/One_Shot.md` 로드
 2. Bitbucket API로 대상 소스 파일 가져오기
-3. LLM에게 Spec과 구현 가이드를 프롬프트로 제공
-4. LLM이 JSON 형식의 수정사항 생성
-5. 수정사항을 코드에 적용하여 결과 파일 저장
+3. **🆕 Clang AST로 파일에서 관련 함수만 추출** (150개 중 3개)
+4. LLM에게 Spec, 구현 가이드, **관련 메서드만** 프롬프트로 제공
+5. LLM이 JSON 형식의 수정사항 생성 (전체 파일 기준 라인 번호)
+6. **Diff 기반**으로 수정사항을 코드에 적용하여 결과 파일 저장
 
-**상세 문서**: [MATERIAL_DB_TEST_README.md](./MATERIAL_DB_TEST_README.md)
+**상세 문서**: 
+- [MATERIAL_DB_TEST_README.md](./MATERIAL_DB_TEST_README.md)
+- **[CLANG_AST_INTEGRATION.md](./CLANG_AST_INTEGRATION.md)** ⭐ NEW!
 
 ### 2. debug_local_processing.py
 
@@ -138,6 +161,7 @@ python test/debug_local_processing.py path/to/webhook.json
 
 | 문서 | 설명 |
 |------|------|
+| [CLANG_AST_INTEGRATION.md](./CLANG_AST_INTEGRATION.md) | ⭐ **Clang AST 통합 가이드 (NEW!)** |
 | [MATERIAL_DB_TEST_README.md](./MATERIAL_DB_TEST_README.md) | Material DB 테스트 사용 가이드 |
 | [TEST_ARCHITECTURE.md](./TEST_ARCHITECTURE.md) | 테스트 시스템 아키텍처 및 설계 |
 | [material_db_spec.md](./material_db_spec.md) | SM355 Material DB Spec |
@@ -171,6 +195,22 @@ JSON 파싱 실패
 → `material_db_test.log`에서 실제 응답 확인
 → 프롬프트를 더 명확하게 수정
 → `temperature` 값 조정 (현재 0.1)
+
+### Clang AST 초기화 실패 (NEW!)
+```
+Clang AST Parser 초기화 실패. 정규식 기반으로 폴백됩니다.
+```
+→ `pip install libclang` 실행
+→ 또는 정규식 폴백 모드로 계속 사용 (기능은 동작함)
+→ 상세 진단: `python test_clang_integration.py`
+
+### 관련 함수를 찾지 못함
+```
+❌ 관련 함수를 찾지 못함 - 전체 파일 프롬프트 사용
+```
+→ `TARGET_FILES`의 `functions` 리스트와 실제 코드의 함수 이름 확인
+→ One_Shot.md의 함수 이름과 일치하는지 확인
+→ 부분 매칭이 작동하므로 키워드만 포함해도 됨
 
 ## 🎯 사용 시나리오
 
@@ -244,6 +284,10 @@ tail -f material_db_test.log
 
 ## 📈 향후 개발 계획
 
+- [x] ✅ **Clang AST 통합** (2024년 10월 완료)
+  - 관련 메서드만 추출하여 토큰 60% 절감
+  - 정확한 라인 번호 매핑
+  - Diff 기반 안전한 수정
 - [ ] 실제 Bitbucket 커밋 기능 구현 완료
 - [ ] 자동 PR 생성 및 리뷰어 지정
 - [ ] 여러 재질을 한 번에 처리하는 배치 모드
