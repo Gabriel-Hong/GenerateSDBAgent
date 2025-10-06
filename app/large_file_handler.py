@@ -26,6 +26,115 @@ class LargeFileHandler:
         self.chunker = CodeChunker()
         self.template_gen = TemplateBasedGenerator(llm_handler)
 
+    def _is_macro_file(self, file_path: str, issue_description: str) -> bool:
+        """
+        매크로 정의 파일인지 감지
+
+        Args:
+            file_path: 파일 경로
+            issue_description: 이슈 설명
+
+        Returns:
+            매크로 파일 여부
+        """
+        # 파일명으로 감지
+        if "DBCodeDef.h" in file_path:
+            return True
+
+        # 이슈 설명에서 MATLCODE 패턴 감지
+        if "MATLCODE" in issue_description:
+            return True
+
+        return False
+
+    def _process_macro_file(self, file_path: str, current_content: str,
+                           issue_description: str,
+                           project_context: Dict) -> List[Dict]:
+        """
+        매크로 정의 파일 처리
+
+        Args:
+            file_path: 파일 경로
+            current_content: 파일 내용
+            issue_description: 이슈 설명
+            project_context: 프로젝트 컨텍스트
+
+        Returns:
+            diff 정보 리스트
+        """
+        logger.info("매크로 영역 추출 중...")
+
+        # 매크로 접두사 자동 감지
+        macro_prefix = self._detect_macro_prefix(issue_description, current_content)
+        logger.info(f"감지된 매크로 접두사: {macro_prefix}")
+
+        # 매크로 영역 추출
+        macro_region = self.chunker.extract_macro_region(current_content, macro_prefix)
+
+        if not macro_region:
+            logger.warning("매크로 영역 추출 실패 - 일반 파일 처리로 폴백")
+            return self._process_by_chunks(file_path, current_content, issue_description, project_context)
+
+        logger.info(f"매크로 영역 추출 성공: {macro_region.get('region_name')}")
+
+        # LLM으로 diff 생성 (매크로 섹션만 포함)
+        try:
+            diffs = self.llm_handler.generate_code_diff(
+                file_path,
+                macro_region.get('section_content', ''),
+                issue_description,
+                {
+                    **project_context,
+                    'macro_region': macro_region,
+                    'is_macro_file': True,
+                    'line_offset': macro_region.get('region_start', 0)
+                }
+            )
+
+            # 라인 번호 조정
+            adjusted_diffs = self._adjust_line_numbers(diffs, macro_region.get('region_start', 0))
+
+            logger.info(f"매크로 파일 처리 완료: {len(adjusted_diffs)}개 변경사항")
+            return adjusted_diffs
+
+        except Exception as e:
+            logger.error(f"매크로 파일 처리 실패: {str(e)}")
+            return []
+
+    def _detect_macro_prefix(self, issue_description: str, file_content: str) -> str:
+        """
+        이슈 설명과 파일 내용에서 매크로 접두사 자동 감지
+
+        Args:
+            issue_description: 이슈 설명
+            file_content: 파일 내용
+
+        Returns:
+            매크로 접두사 (예: MATLCODE_STL_)
+        """
+        import re
+        from collections import Counter
+
+        # 1. 이슈 설명에서 MATLCODE_ 패턴 찾기
+        match = re.search(r'(MATLCODE_\w+_)', issue_description)
+        if match:
+            prefix = match.group(1)
+            logger.info(f"이슈 설명에서 매크로 접두사 발견: {prefix}")
+            return prefix
+
+        # 2. 파일 내용에서 가장 많이 등장하는 MATLCODE_ 패턴 찾기
+        matlcode_pattern = re.findall(r'MATLCODE_(\w+?)_', file_content)
+        if matlcode_pattern:
+            most_common = Counter(matlcode_pattern).most_common(1)
+            if most_common:
+                prefix = f"MATLCODE_{most_common[0][0]}_"
+                logger.info(f"파일 분석으로 매크로 접두사 추정: {prefix} (출현 빈도: {most_common[0][1]}회)")
+                return prefix
+
+        # 3. 기본값
+        logger.warning("매크로 접두사를 찾지 못해 기본값 사용: MATLCODE_STL_")
+        return "MATLCODE_STL_"
+
     def process_large_file(self, file_path: str, current_content: str,
                           issue_description: str,
                           project_context: Dict) -> List[Dict]:
@@ -36,19 +145,19 @@ class LargeFileHandler:
             file_path: 파일 경로
             current_content: 현재 파일 내용 (17,000줄)
             issue_description: 이슈 설명
-            project_context: 프로젝트 컨텍스트
+            project_context: 프로젝트 컨텍스트 (guide_content, file_config 포함)
 
         Returns:
             List[Dict]: diff 정보 리스트
         """
         logger.info(f"대용량 파일 처리 시작: {file_path} ({len(current_content.split(chr(10)))} 줄)")
 
-        # 1. 템플릿 기반 처리 가능 여부 확인
-        #if self._is_template_based_task(issue_description):
-        #    logger.info("템플릿 기반 처리 모드")
-        #    return self._process_with_template(current_content, issue_description)
+        # 1. 매크로 파일 감지
+        is_macro_file = self._is_macro_file(file_path, issue_description)
 
-            # 템플릿 기반으로는 처리하지 않고, LLM을 활용해서 처리하는 것으로 함
+        if is_macro_file:
+            logger.info("매크로 정의 파일 감지 - 매크로 영역 추출 모드")
+            return self._process_macro_file(file_path, current_content, issue_description, project_context)
 
         # 2. 함수 단위로 분할
         functions = self.chunker.extract_functions(current_content)

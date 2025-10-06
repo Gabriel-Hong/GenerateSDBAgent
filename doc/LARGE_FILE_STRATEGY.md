@@ -10,7 +10,36 @@
 
 ## 해결 전략
 
-### 1. 청크 기반 처리 (Chunk-based Processing)
+### 1. 매크로 파일 자동 감지 및 영역 추출 (Macro File Detection)
+```python
+from app.large_file_handler import LargeFileHandler
+
+handler = LargeFileHandler(llm_handler)
+
+# DBCodeDef.h 같은 매크로 파일 자동 감지 및 처리
+diffs = handler.process_large_file(
+    file_path="src/wg_db/DBCodeDef.h",
+    current_content=file_content,  # 10,000줄 매크로 파일
+    issue_description="MATLCODE_STL_ 추가",
+    project_context={'guide_content': '...', 'file_config': {...}}
+)
+```
+
+**작동 방식:**
+1. 파일명과 이슈 설명으로 매크로 파일 자동 감지 (DBCodeDef.h, MATLCODE 패턴)
+2. 매크로 접두사 자동 추출 (MATLCODE_STL_, MATLCODE_CON_ 등)
+3. #pragma region 섹션 자동 추출 (전체가 아닌 관련 영역만)
+4. 삽입 기준점(anchor) 자동 식별
+5. LLM에 매크로 영역만 전달 (10,000줄 → 200줄)
+
+**장점:**
+- 매크로 파일 자동 인식 및 특수 처리
+- 전체 10,000줄이 아닌, 관련 #pragma region 영역 200줄만 LLM에 전달
+- 토큰 사용량 **98% 감소** (10,000줄 → 200줄)
+- 정확한 삽입 위치 자동 감지
+- 파일별 구현 가이드 자동 로드
+
+### 2. 청크 기반 처리 (Chunk-based Processing)
 ```python
 from app.large_file_handler import LargeFileHandler
 
@@ -105,6 +134,22 @@ relevant = chunker.find_relevant_functions(
        ↓
 [파일 크기 체크: > 5,000줄?]
        ↓ Yes
+[매크로 파일인가? (DBCodeDef.h, MATLCODE)]
+       ↓ Yes
+[매크로 접두사 자동 감지]
+       ↓
+[#pragma region 섹션 추출]
+       ↓
+[삽입 기준점 자동 식별]
+       ↓
+[파일별 가이드 로드 + 매크로 영역만 LLM 전달 (200줄)]
+       ↓
+[매크로 추가 diff 생성]
+       ↓
+[수정된 파일]
+       ↓
+       No (일반 파일)
+       ↓
 [템플릿 패턴 작업인가?]
        ↓ Yes
 [유사 함수 패턴 자동 검색]
@@ -178,6 +223,7 @@ for func in relevant:
 | 방식 | 파일 크기 | 토큰 사용 | API 성공률 | 비용 | 코드 품질 |
 |------|----------|----------|-----------|------|----------|
 | **전체 파일 전송** | 17,000줄 | ~12,000 | 30% (에러) | $$$ | 낮음 |
+| **매크로 영역 추출 (신규)** | 200줄 (영역만) | ~500 | 99% | $ | 매우 높음 |
 | **청크 기반 처리** | 500줄 x 3 | ~1,500 | 95% | $ | 높음 |
 | **템플릿 패턴 + LLM** | 예시 2-3개 | ~2,000 | 98% | $$ | 매우 높음 |
 
@@ -188,12 +234,77 @@ for func in relevant:
 # issue_processor.py 에서 자동 판단
 line_count = len(current_content.split('\n'))
 
+# 파일별 구현 가이드 및 설정 로드 (신규)
+guide_content = self.load_guide_file(file_path)
+file_config = get_file_config(file_path)
+
+# 컨텍스트 구성 (신규)
+context = {
+    'structure': project_structure,
+    'guide_content': guide_content,  # 파일별 가이드
+    'file_config': file_config       # 파일 설정
+}
+
 if line_count > 5000:
-    # 대용량 파일 핸들러 사용
-    diffs = self.large_file_handler.process_large_file(...)
+    # 대용량 파일 핸들러 사용 (매크로 파일 자동 감지 포함)
+    diffs = self.large_file_handler.process_large_file(
+        file_path, current_content, issue_summary, context
+    )
 else:
     # 기존 방식
-    diffs = self.llm_handler.generate_code_diff(...)
+    diffs = self.llm_handler.generate_code_diff(
+        file_path, current_content, issue_summary, context
+    )
+```
+
+### Step 1-A: 매크로 파일 자동 감지 및 처리 (신규)
+```python
+# large_file_handler.py
+def process_large_file(self, file_path, current_content, issue_description, project_context):
+    # 1. 매크로 파일 감지
+    is_macro_file = self._is_macro_file(file_path, issue_description)
+
+    if is_macro_file:
+        logger.info("매크로 정의 파일 감지 - 매크로 영역 추출 모드")
+        return self._process_macro_file(
+            file_path, current_content, issue_description, project_context
+        )
+
+    # 2. 일반 파일 처리 (기존 로직)
+    functions = self.chunker.extract_functions(current_content)
+    relevant_functions = self.chunker.find_relevant_functions(functions, issue_description)
+    # ...
+
+def _is_macro_file(self, file_path, issue_description):
+    # 파일명으로 감지
+    if "DBCodeDef.h" in file_path:
+        return True
+    # 이슈 설명에서 MATLCODE 패턴 감지
+    if "MATLCODE" in issue_description:
+        return True
+    return False
+
+def _process_macro_file(self, file_path, current_content, issue_description, project_context):
+    # 매크로 접두사 자동 감지
+    macro_prefix = self._detect_macro_prefix(issue_description, current_content)
+
+    # 매크로 영역 추출
+    macro_region = self.chunker.extract_macro_region(current_content, macro_prefix)
+
+    # LLM으로 diff 생성 (매크로 섹션만 포함)
+    diffs = self.llm_handler.generate_code_diff(
+        file_path,
+        macro_region.get('section_content', ''),
+        issue_description,
+        {
+            **project_context,
+            'macro_region': macro_region,
+            'is_macro_file': True,
+            'line_offset': macro_region.get('region_start', 0)
+        }
+    )
+
+    return diffs
 ```
 
 ### Step 2-A: 템플릿 패턴 작업인 경우

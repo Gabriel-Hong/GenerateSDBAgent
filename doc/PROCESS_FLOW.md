@@ -15,7 +15,10 @@ GenerateSDBAgent는 Jira 이슈를 받아서 자동으로 코드를 수정하고
 
 ### 핵심 기술
 - **Clang AST Parser**: 대용량 C++ 파일을 함수 단위로 정확하게 분할 (99% 정확도)
-- **LLM (OpenAI)**: 코드 분석 및 수정사항 생성
+- **매크로 영역 추출**: #pragma region 섹션 자동 감지 및 처리
+- **파일별 구현 가이드**: 각 파일에 맞는 커스텀 가이드 자동 로드
+- **집중된 프롬프트**: 관련 함수만 추출하여 LLM 토큰 사용량 최소화
+- **LLM (OpenAI)**: 코드 분석 및 수정사항 생성 (JSON 파싱 강화)
 - **Diff 기반 적용**: 줄 단위로 정확한 코드 수정
 - **Bitbucket API**: 소스 관리 및 PR 자동화
 
@@ -53,14 +56,20 @@ GenerateSDBAgent는 Jira 이슈를 받아서 자동으로 코드를 수정하고
         │  Step 5: 파일 수정 (핵심 단계)            │
         │  ┌────────────────────────────────────────┐ │
         │  │ A. Bitbucket에서 파일 가져오기         │ │
-        │  │ B. 파일 크기 확인                      │ │
-        │  │ C-1. 일반 파일 (<5000줄)              │ │
-        │  │      → 전체 LLM 처리                   │ │
-        │  │ C-2. 대용량 파일 (≥5000줄)            │ │
-        │  │      → Clang AST 분할 + LLM           │ │
-        │  │ D. Diff 생성 (LLM)                    │ │
-        │  │ E. Diff 적용 (줄 단위 수정)           │ │
-        │  │ F. 메모리에 저장 (아직 커밋 안 함)    │ │
+        │  │ B. 파일별 구현 가이드 로드 (신규)     │ │
+        │  │    → TARGET_FILES 설정 기반            │ │
+        │  │ C. 파일 타입 감지                      │ │
+        │  │    C-1. 매크로 파일 (DBCodeDef.h)     │ │
+        │  │         → 매크로 영역 추출 (신규)      │ │
+        │  │    C-2. 일반 함수 파일                │ │
+        │  │         → Clang AST 함수 추출          │ │
+        │  │ D. 집중된 프롬프트 생성 (신규)        │ │
+        │  │    → 라인 번호 포함 코드               │ │
+        │  │    → 관련 함수만 선택                  │ │
+        │  │ E. Diff 생성 (LLM + JSON 파싱 강화)   │ │
+        │  │ F. Diff 적용 (줄 단위 수정)           │ │
+        │  │ G. Unified Diff 생성 (신규)           │ │
+        │  │ H. 메모리에 저장 (아직 커밋 안 함)    │ │
         │  └────────────────────────────────────────┘ │
         │  • 모든 파일 처리 후 한 번에 커밋          │
         └──────────────────┬──────────────────────────┘
@@ -285,20 +294,44 @@ BOOL CMatlDB::GetSteelList_SP16_2017_tB1(...)
 // ... 500개 함수 ...
 ```
 
-#### 5-B. 파일 크기 확인 및 처리 방식 결정
+#### 5-B. 파일별 가이드 및 설정 로드 (신규)
+
+```python
+# 파일별 구현 가이드 로드
+guide_content = self.load_guide_file(file_path)
+# 예: doc/guides/DBCodeDef_guide.md 내용
+
+# 파일 설정 가져오기
+file_config = get_file_config(file_path)
+# 예: {
+#   'path': 'src/wg_db/DBCodeDef.h',
+#   'guide_file': 'doc/guides/DBCodeDef_guide.md',
+#   'functions': ['MATLCODE_STL_'],
+#   'description': '재질 코드 이름 등록'
+# }
+
+# 컨텍스트 구성
+context = {
+    'structure': project_structure,
+    'guide_content': guide_content,  # 신규: 파일별 가이드 전달
+    'file_config': file_config       # 신규: 파일 설정 전달
+}
+```
+
+#### 5-C. 파일 크기 확인 및 처리 방식 결정
 
 ```python
 line_count = len(current_content.split('\n'))  # 17,000
 logger.info(f"파일 크기: {line_count} 줄")
 
 if line_count > 5000:
-    # 대용량 파일 → LargeFileHandler 사용
+    # 대용량 파일 → LargeFileHandler 사용 (매크로 파일 자동 감지 포함)
     logger.info(f"대용량 파일 감지 ({line_count} 줄). LargeFileHandler 사용")
     diffs = large_file_handler.process_large_file(
         file_path,
         current_content,
         issue_summary,
-        {'structure': project_structure}
+        context  # guide_content, file_config 포함
     )
 else:
     # 일반 파일 → 전체 LLM 처리
@@ -306,15 +339,78 @@ else:
         file_path,
         current_content,
         issue_summary,
-        {'structure': project_structure}
+        context  # guide_content, file_config 포함
     )
 ```
 
-#### 5-C. 대용량 파일 처리 상세 (LargeFileHandler)
+#### 5-D. 대용량 파일 처리 상세 (LargeFileHandler)
 
 **코드 위치**: `app/large_file_handler.py` - `process_large_file()`
 
-##### **C-1. Clang AST로 함수 추출**
+##### **D-0. 매크로 파일 자동 감지 및 처리 (신규)**
+
+```python
+# 1. 매크로 파일 감지
+is_macro_file = self._is_macro_file(file_path, issue_description)
+
+if is_macro_file:
+    logger.info("매크로 정의 파일 감지 - 매크로 영역 추출 모드")
+    return self._process_macro_file(
+        file_path, current_content, issue_description, project_context
+    )
+```
+
+**매크로 파일 감지 로직:**
+```python
+def _is_macro_file(self, file_path, issue_description):
+    # 파일명으로 감지
+    if "DBCodeDef.h" in file_path:
+        return True
+    # 이슈 설명에서 MATLCODE 패턴 감지
+    if "MATLCODE" in issue_description:
+        return True
+    return False
+```
+
+**매크로 파일 처리:**
+```python
+def _process_macro_file(self, file_path, current_content, issue_description, project_context):
+    # 1. 매크로 접두사 자동 감지 (MATLCODE_STL_, MATLCODE_CON_ 등)
+    macro_prefix = self._detect_macro_prefix(issue_description, current_content)
+
+    # 2. 매크로 영역 추출 (#pragma region 섹션)
+    macro_region = self.chunker.extract_macro_region(current_content, macro_prefix)
+    # 결과: {
+    #   'region_name': 'STEEL',
+    #   'region_start': 1000,
+    #   'region_end': 1200,
+    #   'section_content': '... 200줄 ...',
+    #   'anchor_line': 1150,
+    #   'anchor_content': '#define MATLCODE_STL_LAST ...'
+    # }
+
+    # 3. LLM으로 diff 생성 (매크로 섹션 200줄만 전달, 전체 10,000줄 아님)
+    diffs = self.llm_handler.generate_code_diff(
+        file_path,
+        macro_region.get('section_content', ''),
+        issue_description,
+        {
+            **project_context,
+            'macro_region': macro_region,  # 영역 정보 전달
+            'is_macro_file': True,
+            'line_offset': macro_region.get('region_start', 0)
+        }
+    )
+
+    return diffs
+```
+
+**효과:**
+- 10,000줄 파일 → 200줄 매크로 영역만 LLM에 전달
+- 토큰 사용량 **98% 감소**
+- 정확한 삽입 위치 자동 감지
+
+##### **D-1. Clang AST로 함수 추출** (매크로 파일이 아닌 경우)
 
 ```python
 functions = chunker.extract_functions(current_content)
@@ -604,6 +700,45 @@ system_prompt = """
 }
 """
 
+# 파일별 구현 가이드와 설정 추출 (신규)
+guide_content = project_context.get('guide_content', '')
+file_config = project_context.get('file_config', {})
+macro_region = project_context.get('macro_region', None)
+is_macro_file = project_context.get('is_macro_file', False)
+
+# 추가 컨텍스트 구성 (신규)
+additional_context = ""
+
+if guide_content:
+    additional_context += f"""
+
+## 파일별 구현 가이드
+{guide_content}
+"""
+
+if file_config:
+    additional_context += f"""
+
+## 파일 설정 정보
+- 설명: {file_config.get('description', '')}
+- 섹션: {file_config.get('section', '')}
+- 대상 함수: {', '.join(file_config.get('functions', []))}
+"""
+
+if is_macro_file and macro_region:
+    additional_context += f"""
+
+## 매크로 영역 정보
+- 영역 이름: {macro_region.get('region_name', '')}
+- 라인 범위: {macro_region.get('region_start', 0)}-{macro_region.get('region_end', 0)}
+- 삽입 기준점 (라인 {macro_region.get('anchor_line', 0)}): {macro_region.get('anchor_content', '')}
+
+⚠️ **매크로 추가 시 주의사항**:
+- 반드시 기준점 라인 바로 다음에만 삽입
+- old_content는 기준점 내용과 정확히 일치해야 함
+- #pragma region 경계를 벗어나지 말 것
+"""
+
 user_prompt = f"""
 파일 경로: src/Civil/MatlDB.cpp
 
@@ -612,6 +747,7 @@ user_prompt = f"""
 
 이슈:
 {issue_summary}
+{additional_context}
 
 위 패턴을 참고하여 필요한 수정사항을 JSON 형식으로 제공하세요.
 """
@@ -1094,11 +1230,13 @@ Diff (10~20줄)
 
 | 파일 | 역할 | 주요 기능 |
 |------|------|----------|
-| `app/issue_processor.py` | 전체 워크플로우 관리 | process_issue() |
-| `app/llm_handler.py` | LLM 통신 | generate_code_diff(), apply_diff_to_content() |
+| `app/issue_processor.py` | 전체 워크플로우 관리 | process_issue(), load_guide_file() |
+| `app/llm_handler.py` | LLM 통신 | generate_code_diff(), apply_diff_to_content(), format_code_with_line_numbers(), escape_control_chars_in_strings(), generate_diff_output() |
 | `app/large_file_handler.py` | 대용량 파일 처리 | process_large_file() |
-| `app/code_chunker.py` | 코드 분할 (Clang AST) | extract_functions(), find_relevant_functions() |
+| `app/code_chunker.py` | 코드 분할 (Clang AST) | extract_functions(), find_relevant_functions(), extract_macro_region() |
 | `app/bitbucket_api.py` | Bitbucket 연동 | get_file_content(), commit_multiple_files() |
+| `app/target_files_config.py` | 파일 설정 관리 (신규) | get_file_config(), get_guide_file() |
+| `app/prompt_builder.py` | 프롬프트 생성 (신규) | build_focused_modification_prompt(), get_context_lines() |
 
 ---
 

@@ -453,6 +453,85 @@ class CodeChunker:
         else:
             logger.info("CodeChunker: 정규식 모드로 동작")
 
+    def extract_macro_region(self, file_content: str, target_macro_prefix: str) -> dict:
+        """
+        매크로 정의 영역에서 관련 섹션 추출 (Clang AST 대신 사용)
+
+        Args:
+            file_content: 파일 전체 내용
+            target_macro_prefix: 찾을 매크로 접두사 (예: 'MATLCODE_STL_')
+
+        Returns:
+            관련 섹션 정보
+        """
+        lines = file_content.splitlines()
+
+        # #pragma region 섹션 찾기
+        region_start = -1
+        region_end = -1
+        region_name = ""
+
+        # 매크로 접두사로 섹션명 추론
+        section_map = {
+            "MATLCODE_STL_": "STEEL",
+            "MATLCODE_CON_": "CONCRETE AND REBARS",
+            "MATLCODE_ALU_": "ALUMINIUM",
+            "MATLCODE_TIMBER_": "TIMBER"
+        }
+
+        target_section = section_map.get(target_macro_prefix, "STEEL")
+        region_pattern = rf"#pragma\s+region\s+///\s+\[\s+MATL\s+CODE\s+-\s+{target_section}\s+\]"
+
+        for i, line in enumerate(lines):
+            if re.search(region_pattern, line, re.IGNORECASE):
+                region_start = i + 1  # 1-based
+                region_name = line.strip()
+                logger.info(f"✅ 매크로 섹션 발견: {region_name} (라인 {region_start})")
+            elif region_start > 0 and "#pragma endregion" in line:
+                region_end = i + 1
+                logger.info(f"✅ 섹션 종료: 라인 {region_end}")
+                break
+
+        if region_start < 0:
+            logger.warning(f"❌ 섹션을 찾지 못함: {target_section}")
+            return None
+
+        # 섹션 내의 매크로 정의 추출
+        relevant_macros = []
+        for i in range(region_start, region_end):
+            line = lines[i]
+            if f"#define {target_macro_prefix}" in line:
+                relevant_macros.append({
+                    'line': i + 1,
+                    'content': line.strip()
+                })
+
+        # 마지막 관련 매크로 찾기 (삽입 기준점)
+        anchor_line = -1
+        anchor_content = ""
+
+        # 특정 패턴으로 앵커 찾기 (예: SP16_2017 시리즈)
+        for macro in reversed(relevant_macros):
+            if "SP16_2017" in macro['content'] or target_macro_prefix in macro['content']:
+                anchor_line = macro['line']
+                anchor_content = macro['content']
+                break
+
+        if anchor_line < 0 and relevant_macros:
+            # 마지막 매크로를 앵커로
+            anchor_line = relevant_macros[-1]['line']
+            anchor_content = relevant_macros[-1]['content']
+
+        return {
+            'region_start': region_start,
+            'region_end': region_end,
+            'region_name': region_name,
+            'relevant_macros': relevant_macros,
+            'anchor_line': anchor_line,
+            'anchor_content': anchor_content,
+            'section_content': '\n'.join(lines[region_start-1:region_end])
+        }
+
     def extract_functions(self, content: str, file_path: str = None) -> List[Dict]:
         """
         C++ 파일에서 함수들을 추출

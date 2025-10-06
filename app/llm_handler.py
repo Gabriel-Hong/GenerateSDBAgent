@@ -6,6 +6,7 @@ import os
 import json
 import logging
 from typing import Dict, List, Optional, Any
+from difflib import unified_diff
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class LLMHandler:
     def __init__(self):
         self.api_key = os.getenv('OPENAI_API_KEY')
         self.client = None
-        
+
         if not self.api_key:
             logger.warning("OpenAI API 키가 설정되지 않았습니다. Mock 모드로 실행합니다.")
         else:
@@ -31,15 +32,106 @@ class LLMHandler:
             except Exception as e:
                 logger.error(f"OpenAI 클라이언트 초기화 실패: {str(e)}")
                 logger.warning("Mock 모드로 계속 진행합니다")
-        
+
         self.model = os.getenv('OPENAI_MODEL', 'gpt-4o')
-        
+
         # 최대 토큰 수 설정
         self.max_tokens = int(os.getenv('OPENAI_MAX_TOKENS', '4000'))
-        
+
         # Few-shot 예제 저장소
         self.few_shot_examples = []
-    
+
+    def format_code_with_line_numbers(self, content: str, start_line: int) -> str:
+        """
+        코드에 라인 번호 prefix 추가
+
+        Args:
+            content: 코드 내용
+            start_line: 시작 라인 번호 (1-based)
+
+        Returns:
+            라인 번호가 포함된 코드
+        """
+        lines = content.splitlines()
+        numbered_lines = []
+        for i, line in enumerate(lines, start=start_line):
+            # 6자리 우측 정렬 (최대 999,999 라인 지원)
+            numbered_lines.append(f"{i:6d}|{line}")
+        return '\n'.join(numbered_lines)
+
+    def escape_control_chars_in_strings(self, text: str) -> str:
+        """
+        JSON 문자열 값 내부의 제어 문자를 이스케이프
+
+        Args:
+            text: JSON 텍스트
+
+        Returns:
+            이스케이프된 JSON 텍스트
+        """
+        result = []
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(text):
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                continue
+
+            if char == '\\':
+                result.append(char)
+                escape_next = True
+                continue
+
+            if char == '"' and (i == 0 or text[i-1] != '\\'):
+                in_string = not in_string
+                result.append(char)
+                continue
+
+            if in_string:
+                # 문자열 내부에서만 제어 문자를 이스케이프
+                if char == '\t':
+                    result.append('\\t')
+                elif char == '\r':
+                    result.append('\\r')
+                elif char == '\n':
+                    result.append('\\n')
+                else:
+                    result.append(char)
+            else:
+                result.append(char)
+
+        return ''.join(result)
+
+    def generate_diff_output(self, original: str, modified: str, filename: str) -> str:
+        """
+        원본과 수정된 내용의 unified diff 생성
+
+        Args:
+            original: 원본 파일 내용
+            modified: 수정된 파일 내용
+            filename: 파일 이름
+
+        Returns:
+            Unified diff 문자열
+        """
+        # splitlines(keepends=False)로 줄바꿈 제거하여 일관된 비교
+        # apply_diff_to_content에서 '\n'.join()으로 생성된 내용과 일치하도록
+        original_lines = original.splitlines(keepends=False)
+        modified_lines = modified.splitlines(keepends=False)
+
+        diff = unified_diff(
+            original_lines,
+            modified_lines,
+            fromfile=f'a/{filename}',
+            tofile=f'b/{filename}',
+            lineterm=''
+        )
+
+        # diff 결과를 줄바꿈으로 연결
+        return '\n'.join(diff)
+
     def load_few_shot_examples(self, examples_file: str = "few_shot_examples.json"):
         """Few-shot 예제 로드"""
         try:
@@ -182,6 +274,45 @@ action 타입:
 - "insert": 특정 라인 뒤에 새 내용 삽입
 - "delete": 특정 라인들 삭제"""
 
+            # 파일별 구현 가이드와 설정 추출
+            guide_content = project_context.get('guide_content', '')
+            file_config = project_context.get('file_config', {})
+            macro_region = project_context.get('macro_region', None)
+            is_macro_file = project_context.get('is_macro_file', False)
+
+            # 추가 컨텍스트 구성
+            additional_context = ""
+
+            if guide_content:
+                additional_context += f"""
+
+## 파일별 구현 가이드
+{guide_content}
+"""
+
+            if file_config:
+                additional_context += f"""
+
+## 파일 설정 정보
+- 설명: {file_config.get('description', '')}
+- 섹션: {file_config.get('section', '')}
+- 대상 함수: {', '.join(file_config.get('functions', []))}
+"""
+
+            if is_macro_file and macro_region:
+                additional_context += f"""
+
+## 매크로 영역 정보
+- 영역 이름: {macro_region.get('region_name', '')}
+- 라인 범위: {macro_region.get('region_start', 0)}-{macro_region.get('region_end', 0)}
+- 삽입 기준점 (라인 {macro_region.get('anchor_line', 0)}): {macro_region.get('anchor_content', '')}
+
+⚠️ **매크로 추가 시 주의사항**:
+- 반드시 기준점 라인 바로 다음에만 삽입
+- old_content는 기준점 내용과 정확히 일치해야 함
+- #pragma region 경계를 벗어나지 말 것
+"""
+
             # 사용자 프롬프트
             user_prompt = f"""
 파일 경로: {file_path}
@@ -192,6 +323,7 @@ action 타입:
 
 요구사항:
 {issue_description}
+{additional_context}
 
 위 코드에서 요구사항을 충족하기 위해 수정이 필요한 부분을 diff 형식으로 제안해주세요.
 라인 번호를 정확히 참조하고, old_content에는 라인 번호를 제외한 실제 코드만 포함하세요.
@@ -224,6 +356,13 @@ action 타입:
                 else:
                     json_content = content.strip()
 
+                # Trailing comma 제거 (LLM이 종종 생성하는 문제)
+                import re
+                json_content = re.sub(r',(\s*[}\]])', r'\1', json_content)
+
+                # JSON 문자열 값 내부의 제어 문자 이스케이프
+                json_content = self.escape_control_chars_in_strings(json_content)
+
                 result = json.loads(json_content)
                 modifications = result.get('modifications', [])
 
@@ -232,7 +371,8 @@ action 타입:
 
             except json.JSONDecodeError as e:
                 logger.warning(f"LLM 응답을 JSON으로 파싱할 수 없음: {str(e)}")
-                logger.warning(f"응답 내용: {content[:500]}...")
+                logger.warning(f"파싱 시도한 JSON 내용:\n{json_content[:500]}...")
+                logger.warning(f"원본 응답 내용:\n{content[:500]}...")
                 return self._mock_code_diff(current_content, issue_description)
 
         except Exception as e:

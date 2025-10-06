@@ -94,23 +94,26 @@ def load_implementation_guide(guide_file: str = None) -> str:
         raise FileNotFoundError(f"구현 가이드를 찾을 수 없습니다: {guide_file}")
 
 
-# 수정 대상 파일 목록 - One_Shot.md 기반
+# 수정 대상 파일 목록 - 파일별 가이드 사용
 TARGET_FILES = [
     {
         "path": "src/wg_db/DBCodeDef.h",
+        "guide_file": "doc/guides/DBCodeDef_guide.md",
         "functions": ["MATLCODE_STL_"],
         "description": "재질 코드 이름 등록 - 해당 재질 타입의 #pragma region 섹션 내부",
         "section": "1. 재질 Code Name 등록"
     },
     {
         "path": "src/wg_db/MatlDB.cpp",
+        "guide_file": "doc/guides/MatlDB_guide.md",
         "functions": ["CMatlDB::MakeMatlData_MatlType", "CMatlDB::GetSteelList_", "CMatlDB::MakeMatlData"],
-        "description": "Enum 추가 및 재질 코드/강종 List 추가",
+        "description": "Enum 추가 및 재질 코드/강종 List 추가 (통합)",
         "section": "2. Enum 추가 & 3. 재질 Code 및 강종 List 추가",
         "alternative_path": "wg_db/MatlDB.h"
     },
     {
         "path": "src/wg_db/DBLib.cpp", 
+        "guide_file": "doc/guides/DBLib_guide.md",
         "functions": ["CDBLib::GetDefaultStlMatl"],
         "description": "재질 코드별 기본 DB 설정",
         "section": "4. 재질 Code별 Default DB 설정",
@@ -118,6 +121,7 @@ TARGET_FILES = [
     },
     {
         "path": "src/wg_dgn/DgnDataCtrl.cpp",
+        "guide_file": "doc/guides/DgnDataCtrl_guide.md",
         "functions": ["CDgnDataCtrl::Get_FyByThick_", "CDgnDataCtrl::Get_FyByThick_Code", "CDgnDataCtrl::GetChkKindStlMatl"],
         "description": "두께에 따른 항복 강도 계산 및 Control Enable/Disable 판단",
         "section": "5. 두께에 따른 항복 강도 계산 & 6. Control Enable/Disable 판단 함수",
@@ -422,6 +426,62 @@ def extract_macro_region(file_content: str, target_macro_prefix: str) -> dict:
     }
 
 
+def format_code_with_line_numbers(content: str, start_line: int) -> str:
+    """
+    코드에 라인 번호 prefix 추가
+    
+    Args:
+        content: 코드 내용
+        start_line: 시작 라인 번호 (1-based)
+        
+    Returns:
+        라인 번호가 포함된 코드
+    """
+    lines = content.splitlines()
+    numbered_lines = []
+    for i, line in enumerate(lines, start=start_line):
+        # 6자리 우측 정렬 (최대 999,999 라인 지원)
+        numbered_lines.append(f"{i:6d}|{line}")
+    return '\n'.join(numbered_lines)
+
+
+def get_context_lines(file_content: str, target_line: int, 
+                      before: int = 3, after: int = 3) -> tuple:
+    """
+    특정 라인 주변의 컨텍스트 추출 (라인 번호 포함)
+    
+    Args:
+        file_content: 전체 파일 내용
+        target_line: 대상 라인 (1-based)
+        before: 앞쪽 컨텍스트 라인 수
+        after: 뒤쪽 컨텍스트 라인 수
+        
+    Returns:
+        (before_context, after_context) - 라인 번호 포함
+    """
+    lines = file_content.splitlines()
+    
+    # 이전 컨텍스트
+    before_start = max(0, target_line - before - 1)
+    before_end = target_line - 1
+    before_lines = lines[before_start:before_end]
+    before_context = format_code_with_line_numbers(
+        '\n'.join(before_lines), 
+        before_start + 1
+    ) if before_lines else ""
+    
+    # 이후 컨텍스트
+    after_start = target_line
+    after_end = min(len(lines), target_line + after)
+    after_lines = lines[after_start:after_end]
+    after_context = format_code_with_line_numbers(
+        '\n'.join(after_lines),
+        after_start + 1
+    ) if after_lines else ""
+    
+    return (before_context, after_context)
+
+
 def extract_relevant_methods(file_content: str, target_functions: list, file_path: str = "") -> tuple:
     """
     파일에서 관련 함수/매크로 영역 추출
@@ -544,15 +604,23 @@ def build_focused_modification_prompt(file_info: dict, relevant_functions: list,
     additional_instructions = ""
     if relevant_functions and relevant_functions[0].get('is_macro_region'):
         macro_info = relevant_functions[0]
+        
+        # 라인 번호 포함된 매크로 섹션
+        numbered_content = format_code_with_line_numbers(
+            macro_info['content'],
+            macro_info['line_start']
+        )
+        
         relevant_code_text = f"""
 ### 매크로 정의 섹션: {macro_info['name']} (라인 {macro_info['line_start']}-{macro_info['line_end']})
 
 **삽입 기준점:**
-- 라인 {macro_info['anchor_line']}: `{macro_info['anchor_content']}`
-- **이 라인 바로 다음에 새 매크로 추가**
+- **라인 {macro_info['anchor_line']}**: `{macro_info['anchor_content']}`
+- 이 라인 바로 다음에 새 매크로 추가
 
+**전체 섹션 (라인 번호 포함):**
 ```cpp
-{macro_info['content']}
+{numbered_content}
 ```
 """
         
@@ -586,10 +654,31 @@ def build_focused_modification_prompt(file_info: dict, relevant_functions: list,
         # 일반 함수 처리
         relevant_code_sections = []
         for func in relevant_functions:
+            # 라인 번호 포함된 함수 코드
+            numbered_code = format_code_with_line_numbers(
+                func['content'], 
+                func['line_start']
+            )
+            
+            # 주변 컨텍스트 추출
+            before_ctx, after_ctx = get_context_lines(
+                file_content, 
+                func['line_start'],
+                before=3,
+                after=0  # 함수 내용 자체를 보여주므로 after는 0
+            )
+            
             section = f"""
 ### 함수: {func['name']} (라인 {func['line_start']}-{func['line_end']})
+
+**이전 컨텍스트 (참고용):**
 ```cpp
-{func['content']}
+{before_ctx}
+```
+
+**수정 대상 코드 (라인 번호 포함):**
+```cpp
+{numbered_code}
 ```
 """
             relevant_code_sections.append(section)
@@ -678,57 +767,29 @@ def build_focused_modification_prompt(file_info: dict, relevant_functions: list,
 
 ### JSON 형식 참고사항:
 - `line_start`, `line_end`: 1부터 시작하는 라인 번호 (정수, **전체 파일 기준**)
+  - **위 코드 블록에 표시된 라인 번호(예: 420|, 421|)를 그대로 사용하세요**
 - `action`: 
   - "replace": 기존 코드를 새 코드로 교체
   - "insert": line_end 다음에 new_content 삽입
   - "delete": 해당 라인 삭제
-- `old_content`: 현재 파일의 해당 라인과 **정확히** 일치해야 함
-- `new_content`: 수정될 코드 (들여쓰기 포함)
+- `old_content`: 현재 파일의 해당 라인과 **정확히** 일치해야 함 (라인 번호 prefix 제외)
+- `new_content`: 수정될 코드 (들여쓰기 포함, 라인 번호 prefix 제외)
 
-**중요**: 
-- JSON 외 다른 텍스트는 포함하지 마세요. 
-- 라인 번호는 **전체 파일 기준**입니다 (위에 표시된 함수의 line_start, line_end 참고).
-- 코드 블록(```)으로 감싸도 됩니다.
+**중요 - 들여쓰기 유지 필수**: 
+- `old_content`와 `new_content` 작성 시:
+  1. 라인 번호 (예: `10732|`) **만** 제거
+  2. **파이프(|) 뒤의 모든 내용을 그대로 복사**
+  
+  **예시:**
+  코드: `  10732|\t\tis_SP16_2017_tB5,`
+  
+  ❌ 잘못: `"is_SP16_2017_tB5,"`
+  ✅ 올바름: `"\t\tis_SP16_2017_tB5,"` (탭 2개 포함!)
+  
+- **절대 들여쓰기를 제거하지 마세요!**
+- 탭(`\t`)과 스페이스를 정확히 유지하세요.
 """
     
-    # 매크로 영역 특별 처리
-    if relevant_functions and relevant_functions[0].get('is_macro_region'):
-        macro_info = relevant_functions[0]
-        relevant_code_text = f"""
-### 매크로 정의 섹션: {macro_info['name']} (라인 {macro_info['line_start']}-{macro_info['line_end']})
-
-**삽입 기준점:**
-- 라인 {macro_info['anchor_line']}: `{macro_info['anchor_content']}`
-- **이 라인 바로 다음에 새 매크로 추가**
-
-```cpp
-{macro_info['content']}
-```
-"""
-        
-        additional_instructions = f"""
-### ⚠️ 매크로 추가 시 주의사항
-
-1. **정확한 삽입 위치**:
-   - `line_start`: {macro_info['anchor_line']} (기준점 라인)
-   - `line_end`: {macro_info['anchor_line']} (동일)
-   - `action`: "insert"
-
-2. **old_content**: 반드시 정확히 일치 (들여쓰기 포함)
-   
-   {macro_info['anchor_content']}
-
-3. **new_content**: 새 매크로 정의
-   - 기준점 다음 줄에 삽입될 내용
-   - 들여쓰기: 탭 문자 사용
-   - 형식: `#define MATLCODE_XXX_NAME _T("Display Name")`
-
-4. **절대 하지 말아야 할 것**:
-   - ❌ `#pragma region` 경계 밖에 추가
-   - ❌ 다른 매크로 타입(CONCODE, LOADCOM 등) 영역에 추가
-   - ❌ Enum 정의 영역에 추가
-"""
-        
     return prompt
 
 
@@ -768,9 +829,9 @@ def build_modification_prompt(file_info: dict, current_content: str,
 
 ---
 
-## 4. 현재 파일 내용
+## 4. 현재 파일 내용 (라인 번호 포함)
 ```cpp
-{current_content}
+{format_code_with_line_numbers(current_content, 1)}
 ```
 
 ---
@@ -808,20 +869,25 @@ def build_modification_prompt(file_info: dict, current_content: str,
 
 ### JSON 형식 참고사항:
 - `line_start`, `line_end`: 1부터 시작하는 라인 번호 (정수)
+  - **위 코드 블록에 표시된 라인 번호(예: 420|, 421|)를 그대로 사용하세요**
 - `action`: 
   - "replace": 기존 코드를 새 코드로 교체
   - "insert": line_end 다음에 new_content 삽입
   - "delete": 해당 라인 삭제
 - `old_content`: 현재 파일의 해당 라인과 **정확히** 일치해야 함 (라인 번호 prefix 제외)
-- `new_content`: 수정될 코드 (들여쓰기 포함)
+- `new_content`: 수정될 코드 (들여쓰기 포함, 라인 번호 prefix 제외)
 
-**중요**: JSON 외 다른 텍스트는 포함하지 마세요. 코드 블록(```)으로 감싸도 됩니다.
+**중요**: 
+- JSON 외 다른 텍스트는 포함하지 마세요. 
+- 라인 번호는 코드 블록에 명시된 번호(예: `   420|`)를 그대로 사용하세요.
+- `old_content`와 `new_content`에는 라인 번호 prefix(예: 420|)를 포함하지 마세요.
+- 코드 블록(```)으로 감싸도 됩니다.
 """
     return prompt
 
 
 def test_single_file_modification(bitbucket_api: BitbucketAPI, llm_handler: LLMHandler,
-                                  file_info: dict, material_spec: str, implementation_guide: str,
+                                  file_info: dict, material_spec: str,
                                   branch: str = "master", dry_run: bool = True) -> dict:
     """
     단일 파일 수정 테스트
@@ -829,9 +895,8 @@ def test_single_file_modification(bitbucket_api: BitbucketAPI, llm_handler: LLMH
     Args:
         bitbucket_api: Bitbucket API 클라이언트
         llm_handler: LLM 핸들러
-        file_info: 파일 정보
+        file_info: 파일 정보 (guide_file 포함)
         material_spec: Material DB Spec 내용
-        implementation_guide: 구현 가이드 내용
         branch: 브랜치 이름
         dry_run: True면 실제 커밋하지 않고 결과만 확인
         
@@ -850,7 +915,18 @@ def test_single_file_modification(bitbucket_api: BitbucketAPI, llm_handler: LLMH
     try:
         logger.info(f"\n{'='*60}")
         logger.info(f"파일 처리 시작: {file_info['path']}")
+        logger.info(f"가이드 파일: {file_info.get('guide_file', 'N/A')}")
         logger.info(f"{'='*60}")
+        
+        # 0. 파일별 구현 가이드 로드
+        guide_file = file_info.get('guide_file')
+        if guide_file and os.path.exists(os.path.join(project_root, guide_file)):
+            logger.info(f"Step 0: 파일별 구현 가이드 로드 - {guide_file}")
+            implementation_guide = load_implementation_guide(guide_file)
+            logger.info(f"가이드 크기: {len(implementation_guide)} characters")
+        else:
+            logger.warning(f"⚠️ 가이드 파일을 찾을 수 없음: {guide_file}, One_Shot.md 사용")
+            implementation_guide = load_implementation_guide()  # 기본값 사용
         
         # 1. 파일 내용 가져오기
         logger.info("Step 1: Bitbucket에서 파일 가져오기...")
@@ -954,6 +1030,45 @@ def test_single_file_modification(bitbucket_api: BitbucketAPI, llm_handler: LLMH
             import re
             json_content = re.sub(r',(\s*[}\]])', r'\1', json_content)
 
+            # JSON 문자열 값 내부의 제어 문자만 이스케이프
+            # "..." 안의 실제 탭을 \t로 변환
+            def escape_control_chars_in_strings(text):
+                """JSON 문자열 값 내부의 제어 문자를 이스케이프"""
+                result = []
+                in_string = False
+                escape_next = False
+                
+                for i, char in enumerate(text):
+                    if escape_next:
+                        result.append(char)
+                        escape_next = False
+                        continue
+                    
+                    if char == '\\':
+                        result.append(char)
+                        escape_next = True
+                        continue
+                    
+                    if char == '"' and (i == 0 or text[i-1] != '\\'):
+                        in_string = not in_string
+                        result.append(char)
+                        continue
+                    
+                    if in_string:
+                        # 문자열 내부에서만 제어 문자를 이스케이프
+                        if char == '\t':
+                            result.append('\\t')
+                        elif char == '\r':
+                            result.append('\\r')
+                        elif char == '\n':
+                            result.append('\\n')
+                        else:
+                            result.append(char)
+                    else:
+                        result.append(char)
+                
+                return ''.join(result)
+            json_content = escape_control_chars_in_strings(json_content)
             modification_result = json.loads(json_content)
             modifications = modification_result.get("modifications", [])
             summary = modification_result.get("summary", "")
@@ -1022,7 +1137,7 @@ def test_all_files(dry_run: bool = True, branch: str = "master",
         branch: 테스트할 브랜치
         output_dir: 결과 저장 디렉토리
         spec_file: Material DB Spec 파일 경로 (None이면 doc/Spec_File.md 사용)
-        guide_file: 구현 가이드 파일 경로 (None이면 doc/One_Shot.md 사용)
+        guide_file: [사용안함] 파일별 가이드는 TARGET_FILES의 guide_file 필드 사용
     """
     logger.info("="*60)
     logger.info("Material DB 추가 작업 테스트 시작")
@@ -1057,16 +1172,15 @@ def test_all_files(dry_run: bool = True, branch: str = "master",
     
     llm_handler = LLMHandler()
     
-    # Material DB Spec 및 구현 가이드 로드
+    # Material DB Spec 로드
     try:
         material_spec = load_material_spec(spec_file)
-        implementation_guide = load_implementation_guide(guide_file)
     except FileNotFoundError as e:
-        logger.error(f"파일 로드 실패: {e}")
+        logger.error(f"Spec 파일 로드 실패: {e}")
         return False
     
     logger.info(f"Material Spec 크기: {len(material_spec)} characters")
-    logger.info(f"Implementation Guide 크기: {len(implementation_guide)} characters")
+    logger.info(f"⚠️ 구현 가이드는 파일별로 로드됩니다 (TARGET_FILES의 guide_file 참조)")
     
     # 출력 디렉토리 생성
     os.makedirs(output_dir, exist_ok=True)
@@ -1080,7 +1194,6 @@ def test_all_files(dry_run: bool = True, branch: str = "master",
             llm_handler, 
             file_info,
             material_spec,
-            implementation_guide,
             branch, 
             dry_run
         )
