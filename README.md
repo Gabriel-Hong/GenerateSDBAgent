@@ -71,6 +71,8 @@ OPENAI_API_KEY=your_openai_api_key
 
 ### 실행 방법
 
+> 💡 **자세한 내용은 [DOCKER_GUIDE.md](doc/DOCKER_GUIDE.md)를 참조하세요.**
+
 1. **Docker Compose로 실행**:
 ```bash
 docker-compose up -d
@@ -81,7 +83,12 @@ docker-compose up -d
 docker-compose --profile development up
 ```
 
-3. **로그 확인**:
+3. **Cloudflare Tunnel로 실행** (권장):
+```bash
+docker-compose -f docker-compose.cloudflare.yml --profile quick up -d
+```
+
+4. **로그 확인**:
 ```bash
 docker-compose logs -f sdb-agent
 ```
@@ -251,6 +258,7 @@ python test/test_material_db_modification.py
 - **[IMPLEMENTATION_SUMMARY.md](doc/IMPLEMENTATION_SUMMARY.md)**: 구현 요약
 
 ### 기술 문서
+- **[DOCKER_GUIDE.md](doc/DOCKER_GUIDE.md)**: Docker 배포 및 실행 가이드 🐳
 - **[CLANG_AST_GUIDE.md](doc/CLANG_AST_GUIDE.md)**: Clang AST 사용 가이드
 - **[LARGE_FILE_STRATEGY.md](doc/LARGE_FILE_STRATEGY.md)**: 대용량 파일 처리 전략
 - **[EMBEDDING_SIMILARITY_GUIDE.md](doc/EMBEDDING_SIMILARITY_GUIDE.md)**: 임베딩 유사도 검색

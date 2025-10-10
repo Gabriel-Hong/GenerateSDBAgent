@@ -104,9 +104,17 @@ class BitbucketAPI:
             response = self.make_bitbucket_request(url)
             
             if response.status_code == 200:
-                repo_data = response.json()
-                logger.info(f"토큰 검증 성공, 저장소: {repo_data.get('name', 'Unknown')}")
-                return True, repo_data
+                try:
+                    if response.content:
+                        repo_data = response.json()
+                        logger.info(f"토큰 검증 성공, 저장소: {repo_data.get('name', 'Unknown')}")
+                        return True, repo_data
+                    else:
+                        logger.warning("토큰 검증 응답이 비어있습니다.")
+                        return True, {"status": "valid"}
+                except requests.exceptions.JSONDecodeError as e:
+                    logger.error(f"토큰 검증 응답 파싱 실패: {str(e)}")
+                    return True, {"status": "valid", "parse_error": str(e)}
             else:
                 logger.error(f"토큰 검증 실패: {response.status_code}")
                 return False, None
@@ -133,8 +141,15 @@ class BitbucketAPI:
             
             response.raise_for_status()
             
-            target_hash = response.json()['target']['hash']
-            logger.info(f"기준 커밋 해시: {target_hash}")
+            # 브랜치 정보 파싱
+            try:
+                branch_data = response.json()
+                target_hash = branch_data['target']['hash']
+                logger.info(f"기준 커밋 해시: {target_hash}")
+            except (KeyError, requests.exceptions.JSONDecodeError) as e:
+                logger.error(f"브랜치 정보 파싱 실패: {str(e)}")
+                logger.error(f"응답 내용: {response.text[:200] if response.text else 'Empty'}")
+                raise Exception(f"브랜치 '{from_branch}' 정보를 가져올 수 없습니다")
             
             # 새 브랜치 생성
             branch_url = f"{self.repo_base}/refs/branches"
@@ -154,7 +169,18 @@ class BitbucketAPI:
             response.raise_for_status()
             
             logger.info(f"브랜치 생성 완료: {branch_name}")
-            return response.json()
+            
+            # 브랜치 생성 응답 파싱
+            try:
+                if response.content:
+                    return response.json()
+                else:
+                    logger.warning("브랜치 생성 응답 본문이 비어있습니다.")
+                    return {"status": "success", "name": branch_name}
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                logger.error(f"Response Content (first 500 chars): {response.text[:500] if response.text else 'Empty'}")
+                return {"status": "success", "name": branch_name, "parse_error": str(e)}
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
@@ -211,7 +237,18 @@ class BitbucketAPI:
             response = self.make_bitbucket_request(url)
             response.raise_for_status()
             
-            return response.json()['values']
+            # 디렉토리 목록 응답 파싱
+            try:
+                if response.content:
+                    dir_data = response.json()
+                    return dir_data.get('values', [])
+                else:
+                    logger.warning("디렉토리 목록 응답이 비어있습니다.")
+                    return []
+            except (KeyError, requests.exceptions.JSONDecodeError) as e:
+                logger.error(f"디렉토리 목록 파싱 실패: {str(e)}")
+                logger.error(f"응답 내용: {response.text[:200] if response.text else 'Empty'}")
+                return []
             
         except Exception as e:
             logger.error(f"디렉토리 목록 가져오기 실패: {str(e)}")
@@ -238,7 +275,15 @@ class BitbucketAPI:
                 ref_url = f"{self.repo_base}/refs/branches/{branch}"
                 response = self.make_bitbucket_request(ref_url)
                 response.raise_for_status()
-                parent_commit = response.json()['target']['hash']
+                
+                # 브랜치 정보 파싱
+                try:
+                    branch_data = response.json()
+                    parent_commit = branch_data['target']['hash']
+                except (KeyError, requests.exceptions.JSONDecodeError) as e:
+                    logger.error(f"브랜치 정보 파싱 실패: {str(e)}")
+                    logger.error(f"응답 내용: {response.text[:200] if response.text else 'Empty'}")
+                    raise Exception(f"브랜치 '{branch}' 정보를 가져올 수 없습니다")
             
             # 파일 커밋
             url = f"{self.repo_base}/src"
@@ -261,8 +306,24 @@ class BitbucketAPI:
             )
             response.raise_for_status()
             
+            # 커밋 응답 파싱
             logger.info(f"파일 커밋 완료: {file_path} on {branch}")
-            return response.json()
+            logger.info(f"커밋 응답 상태: {response.status_code}")
+            
+            try:
+                if response.content:
+                    return response.json()
+                else:
+                    logger.warning("커밋 응답 본문이 비어있습니다.")
+                    return {"status": "success", "message": "Commit successful but no response data"}
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                logger.error(f"Response Content (first 500 chars): {response.text[:500] if response.text else 'Empty'}")
+                return {
+                    "status": "success",
+                    "message": "Commit successful",
+                    "parse_error": str(e)
+                }
             
         except Exception as e:
             logger.error(f"파일 커밋 실패: {str(e)}")
@@ -295,7 +356,15 @@ class BitbucketAPI:
                 ref_url = f"{self.repo_base}/refs/branches/{branch}"
                 response = self.make_bitbucket_request(ref_url)
                 response.raise_for_status()
-                parent_commit = response.json()['target']['hash']
+                
+                # 브랜치 정보 파싱
+                try:
+                    branch_data = response.json()
+                    parent_commit = branch_data['target']['hash']
+                except (KeyError, requests.exceptions.JSONDecodeError) as e:
+                    logger.error(f"브랜치 정보 파싱 실패: {str(e)}")
+                    logger.error(f"응답 내용: {response.text[:200] if response.text else 'Empty'}")
+                    raise Exception(f"브랜치 '{branch}' 정보를 가져올 수 없습니다")
 
             # 여러 파일 커밋
             url = f"{self.repo_base}/src"
@@ -334,7 +403,31 @@ class BitbucketAPI:
             )
             response.raise_for_status()
 
-            commit_data = response.json()
+            # 응답 파싱 시 에러 처리 강화
+            try:
+                logger.info(f"커밋 응답 상태: {response.status_code}")
+                logger.info(f"응답 Content-Type: {response.headers.get('Content-Type', 'Unknown')}")
+                logger.info(f"응답 크기: {len(response.content) if response.content else 0} bytes")
+                
+                if response.content:
+                    commit_data = response.json()
+                    logger.info(f"JSON 파싱 성공: {len(str(commit_data))} characters")
+                else:
+                    logger.warning("커밋 응답 본문이 비어있습니다.")
+                    commit_data = {"status": "success", "message": "Commit successful but no response data"}
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                logger.error(f"Response Status: {response.status_code}")
+                logger.error(f"Response Headers: {dict(response.headers)}")
+                logger.error(f"Response Content (first 500 chars): {response.text[:500] if response.text else 'Empty'}")
+                # 커밋은 성공했으므로 기본 정보 반환
+                commit_data = {
+                    "status": "success",
+                    "message": "Commit successful",
+                    "parse_error": str(e),
+                    "status_code": response.status_code
+                }
+            
             file_names = list(files.keys())
             logger.info(f"다중 파일 커밋 완료: {len(file_names)}개 파일 on {branch}")
             logger.info(f"커밋된 파일들: {', '.join(file_names[:5])}{'...' if len(file_names) > 5 else ''}")
@@ -386,9 +479,19 @@ class BitbucketAPI:
             )
             response.raise_for_status()
             
-            pr_data = response.json()
-            logger.info(f"PR 생성 완료: {pr_data['id']} - {title}")
-            return pr_data
+            # PR 생성 응답 파싱
+            try:
+                if response.content:
+                    pr_data = response.json()
+                    logger.info(f"PR 생성 완료: {pr_data.get('id', 'N/A')} - {title}")
+                    return pr_data
+                else:
+                    logger.warning("PR 생성 응답 본문이 비어있습니다.")
+                    return {"status": "success", "title": title}
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                logger.error(f"Response Content (first 500 chars): {response.text[:500] if response.text else 'Empty'}")
+                return {"status": "success", "title": title, "parse_error": str(e)}
             
         except Exception as e:
             logger.error(f"PR 생성 실패: {str(e)}")
