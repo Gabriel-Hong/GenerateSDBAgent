@@ -230,6 +230,35 @@ def test_issue_processor(issue_key: str, save_payload: bool = True, output_dir: 
             json.dump(result, f, indent=2, ensure_ascii=False)
         logger.info(f"\n✅ 처리 결과 저장: {result_file}")
 
+        # 수정된 파일들 저장 (modified_content와 diff)
+        if result.get('modified_files'):
+            logger.info(f"\n📁 수정된 파일 저장 중...")
+            for file_info in result['modified_files']:
+                file_path = file_info.get('path', '')
+                modified_content = file_info.get('modified_content', '')
+                diff = file_info.get('diff', '')
+                
+                if file_path:
+                    # 파일명에서 경로 구분자를 언더스코어로 변경
+                    safe_filename = file_path.replace("/", "_").replace("\\", "_")
+                    
+                    # 파일 확장자 추출
+                    file_ext = os.path.splitext(file_path)[1] or '.txt'
+                    
+                    # 수정된 파일 내용 저장
+                    if modified_content:
+                        modified_file = os.path.join(output_dir, f"{timestamp}_{issue_key}_{safe_filename}_modified{file_ext}")
+                        with open(modified_file, 'w', encoding='utf-8') as f:
+                            f.write(modified_content)
+                        logger.info(f"  ✅ 수정된 파일 저장: {modified_file}")
+                    
+                    # Diff 저장
+                    if diff:
+                        diff_file = os.path.join(output_dir, f"{timestamp}_{issue_key}_{safe_filename}.diff")
+                        with open(diff_file, 'w', encoding='utf-8') as f:
+                            f.write(diff)
+                        logger.info(f"  ✅ Diff 파일 저장: {diff_file}")
+
         # 최종 요약
         logger.info("\n" + "="*80)
         if result.get('status') == 'completed':
@@ -241,6 +270,13 @@ def test_issue_processor(issue_key: str, save_payload: bool = True, output_dir: 
             logger.error(f"   오류: {result.get('errors')}")
         else:
             logger.warning(f"⚠️ 테스트 완료 (상태: {result.get('status')})")
+
+        # 저장된 파일 목록 표시
+        logger.info(f"\n📁 저장된 파일:")
+        logger.info(f"  - JSON 결과: {result_file}")
+        if result.get('modified_files'):
+            logger.info(f"  - 수정된 파일들: {output_dir}/{timestamp}_{issue_key}_*_modified.*")
+            logger.info(f"  - Diff 파일들: {output_dir}/{timestamp}_{issue_key}_*.diff")
 
         logger.info("="*80)
 

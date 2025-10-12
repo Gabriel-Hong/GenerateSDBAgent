@@ -142,6 +142,121 @@ class LLMHandler:
         except Exception as e:
             logger.error(f"Few-shot 예제 로드 실패: {str(e)}")
     
+    def _load_spec_template(self) -> str:
+        """
+        doc/Spec_File.md를 템플릿으로 로드
+        
+        Returns:
+            Spec 템플릿 내용
+        """
+        template_path = os.path.join('doc', 'Spec_File.md')
+        if os.path.exists(template_path):
+            try:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception as e:
+                logger.error(f"Spec 템플릿 로드 실패: {str(e)}")
+                return ""
+        else:
+            logger.warning(f"Spec 템플릿 파일을 찾을 수 없음: {template_path}")
+            return ""
+    
+    def convert_issue_to_spec(self, issue: Dict) -> str:
+        """
+        Jira 이슈(ADF 형식)를 Spec_File.md 형식으로 변환
+        
+        Args:
+            issue: Jira 이슈 dict (description에 ADF JSON 포함)
+        
+        Returns:
+            Spec 형식의 마크다운 문자열
+        """
+        if not self.client:
+            logger.warning("OpenAI 클라이언트가 없어 간단한 요약만 반환")
+            # Fallback: 간단한 요약 반환
+            summary = issue.get('fields', {}).get('summary', '')
+            description = issue.get('fields', {}).get('description', '')
+            return f"# Material DB 명세서\n\n## 기본 정보\n- 요약: {summary}\n\n## 상세 설명\n{description}"
+        
+        try:
+            # Spec_File.md 템플릿 로드
+            spec_template = self._load_spec_template()
+            
+            # 이슈의 description 추출
+            description = issue.get('fields', {}).get('description', '')
+            summary = issue.get('fields', {}).get('summary', '')
+            
+            # LLM 프롬프트
+            system_prompt = """당신은 Jira 이슈를 Material DB Spec 문서로 변환하는 전문가입니다.
+Jira의 ADF(Atlassian Document Format) 형식을 파싱하여 
+doc/Spec_File.md와 동일한 마크다운 형식의 명세서로 변환하세요.
+
+핵심 원칙:
+1. ADF JSON 구조에서 텍스트와 테이블 데이터를 정확히 추출
+2. Spec_File.md의 마크다운 형식과 섹션 구조를 정확히 따름
+3. 테이블 데이터는 마크다운 테이블 형식으로 변환
+4. 재질 코드, 물성치, 강도 데이터를 누락 없이 포함
+5. 단위 정보와 물성치 설명을 명확히 기재"""
+
+            user_prompt = f"""다음 Jira 이슈 내용을 분석하여 Material DB Spec 문서를 생성하세요.
+
+## Spec 템플릿 (참고용 - 이 형식을 따라주세요)
+{spec_template}
+
+---
+
+## Jira 이슈 내용
+
+### Summary
+{summary}
+
+### Description (ADF 형식)
+{json.dumps(description, ensure_ascii=False, indent=2)}
+
+---
+
+## 작업 요청
+
+위 Jira 이슈의 Description(ADF 형식)을 파싱하여 Spec_File.md 형식에 맞춰 Material DB 명세서를 생성하세요.
+
+### 필수 포함 사항:
+1. **기본 정보**: Standard, DB 목록, Data unit
+2. **Data Format**: 공통 물성치 테이블 (Es, nu, alpha, W, Fu, Fy)
+3. **재질별 강도 데이터**: 각 재질별 Scope for t, Fy, Fu 값
+4. **물성치 설명**: 각 물성치의 의미와 단위
+5. **단위**: 사용되는 모든 단위 정의
+
+### 출력 형식:
+- 반드시 마크다운 형식으로 작성
+- 테이블은 마크다운 테이블 구문 사용 (| | |)
+- 섹션은 ## 또는 ### 헤딩 사용
+- ADF의 bulletList → 마크다운 리스트 (-)
+- ADF의 table → 마크다운 테이블
+
+**중요**: JSON이나 코드 블록으로 감싸지 말고, 순수 마크다운만 출력하세요."""
+
+            # LLM 호출
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,  # 정확한 변환을 위해 낮은 temperature
+                max_tokens=self.max_tokens
+            )
+            
+            spec_content = response.choices[0].message.content
+            logger.info(f"Spec 변환 완료: {len(spec_content)} characters")
+            
+            return spec_content
+            
+        except Exception as e:
+            logger.error(f"Spec 변환 실패: {str(e)}")
+            # Fallback: 간단한 요약 반환
+            summary = issue.get('fields', {}).get('summary', '')
+            return f"# Material DB 명세서\n\n## 기본 정보\n- 요약: {summary}\n\n(상세 변환 실패)"
+    
     def generate_code_diff(self, file_path: str, current_content: str,
                           issue_description: str, project_context: Dict) -> List[Dict]:
         """
