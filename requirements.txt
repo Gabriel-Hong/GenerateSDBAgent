@@ -36,3 +36,6 @@ mypy==1.8.0
 
 # 보안
 cryptography==41.0.7
+
+# C/C++ 코드 파싱 (AST)
+libclang==16.0.0

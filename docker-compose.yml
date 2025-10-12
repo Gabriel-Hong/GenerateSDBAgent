@@ -4,6 +4,8 @@ services:
   sdb-agent:
     build: .
     container_name: sdb-generation-agent
+    networks:
+      - sdb-network
     ports:
       - "5000:5000"
     environment:
@@ -37,14 +39,20 @@ services:
       retries: 3
       start_period: 40s
 
-  # 개발용 ngrok (선택사항 - 로컬에서 webhook 테스트용)
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: sdb-agent-ngrok
-    environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
-    command: http sdb-agent:5000
+  # Cloudflare Tunnel (Quick Tunnel - 임시 URL)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sdb-agent-tunnel-quick
+    networks:
+      - sdb-network
+    command: tunnel --no-autoupdate --url http://sdb-agent:5000
     depends_on:
-      - sdb-agent
+      sdb-agent:
+        condition: service_healthy
+    restart: unless-stopped
     profiles:
-      - development
+      - cloudflare
+
+networks:
+  sdb-network:
+    driver: bridge

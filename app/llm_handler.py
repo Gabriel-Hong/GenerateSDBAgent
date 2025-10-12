@@ -142,81 +142,6 @@ class LLMHandler:
         except Exception as e:
             logger.error(f"Few-shot 예제 로드 실패: {str(e)}")
     
-    def analyze_project_structure(self, structure: Dict[str, Any], issue_description: str) -> Dict[str, Any]:
-        """
-        프로젝트 구조를 분석하고 수정이 필요한 파일 식별
-        
-        Args:
-            structure: 프로젝트 구조 정보
-            issue_description: 이슈 설명
-            
-        Returns:
-            분석 결과 (수정 필요 파일, 수정 전략 등)
-        """
-        if not self.client:
-            logger.warning("OpenAI 클라이언트가 없어 Mock 분석 결과를 반환합니다.")
-            return self._mock_analysis_result(structure, issue_description)
-        
-        try:
-            # 시스템 프롬프트
-            system_prompt = """당신은 숙련된 소프트웨어 개발자입니다. 
-주어진 프로젝트 구조와 개발 요청사항을 분석하여, 어떤 파일을 수정해야 하는지 판단해야 합니다.
-SDB(Screen Definition Block)는 화면 정의를 위한 구성 요소입니다."""
-            
-            # 사용자 프롬프트
-            user_prompt = f"""
-프로젝트 구조:
-- 총 파일 수: {structure['total_files']}
-- 주요 디렉토리: {', '.join(structure['directories'][:10])}
-- 파일 타입 분포: {json.dumps(structure['file_types'], ensure_ascii=False)}
-
-개발 요청사항:
-{issue_description}
-
-위 정보를 바탕으로 다음을 JSON 형식으로 응답해주세요:
-{{
-    "files_to_modify": ["수정이 필요한 파일 경로 리스트"],
-    "modification_strategy": "수정 전략 설명",
-    "new_files_needed": ["새로 생성해야 할 파일 경로 리스트"],
-    "estimated_complexity": "low/medium/high"
-}}
-"""
-            
-            # OpenAI 1.x 방식
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.3,
-                max_tokens=self.max_tokens
-            )
-            
-            content = response.choices[0].message.content
-            # JSON 추출 시도
-            try:
-                result = json.loads(content)
-            except:
-                # JSON 파싱 실패 시 Mock 결과 사용
-                logger.warning("LLM 응답을 JSON으로 파싱할 수 없어 Mock 결과를 사용합니다.")
-                return self._mock_analysis_result(structure, issue_description)
-            
-            logger.info(f"프로젝트 분석 완료: {len(result.get('files_to_modify', []))}개 파일 수정 필요")
-            return result
-            
-        except Exception as e:
-            from openai import APIError, RateLimitError, APITimeoutError
-            if isinstance(e, RateLimitError):
-                logger.error(f"OpenAI API 사용량 한도 초과: {str(e)}")
-            elif isinstance(e, APITimeoutError):
-                logger.error(f"OpenAI API 타임아웃: {str(e)}")
-            elif isinstance(e, APIError):
-                logger.error(f"OpenAI API 오류: {str(e)}")
-            else:
-                logger.error(f"프로젝트 분석 중 예상치 못한 오류: {str(e)}")
-            return self._mock_analysis_result(structure, issue_description)
-    
     def generate_code_diff(self, file_path: str, current_content: str,
                           issue_description: str, project_context: Dict) -> List[Dict]:
         """
@@ -581,15 +506,6 @@ action 타입:
             'sass': 'SASS'
         }
         return language_map.get(ext.lower(), 'Plain Text')
-    
-    def _mock_analysis_result(self, structure: Dict, issue_description: str) -> Dict:
-        """LLM 없이 테스트용 분석 결과 반환"""
-        return {
-            "files_to_modify": ["src/main/java/com/example/service/SDBService.java"],
-            "modification_strategy": "SDB 관련 서비스 로직 추가",
-            "new_files_needed": ["src/main/java/com/example/model/SDB.java"],
-            "estimated_complexity": "medium"
-        }
     
     def _mock_code_diff(self, current_content: str, issue_description: str) -> List[Dict]:
         """LLM 없이 테스트용 diff 반환"""

@@ -284,12 +284,8 @@ class IssueProcessor:
                 result['errors'].append(f"브랜치 생성 실패: {str(e)}")
                 return result
             
-            # 3. 프로젝트 구조 분석
-            logger.info("Step 3: 프로젝트 구조 분석 중...")
-            project_structure = self.bitbucket_api.analyze_project_structure(branch_name)
-
-            # 4. TARGET_FILES에서 수정 대상 파일 목록 가져오기
-            logger.info("Step 4: TARGET_FILES에서 수정 대상 파일 목록 로드 중...")
+            # 3. TARGET_FILES에서 수정 대상 파일 목록 가져오기
+            logger.info("Step 3: TARGET_FILES에서 수정 대상 파일 목록 로드 중...")
             from app.target_files_config import get_target_files
 
             target_files = get_target_files()
@@ -297,12 +293,12 @@ class IssueProcessor:
 
             logger.info(f"수정 대상 파일 {len(files_to_modify)}개: {', '.join(files_to_modify)}")
 
-            # 5. 파일 수정 및 커밋 (한 번에 모든 파일 커밋)
-            logger.info("Step 5: 파일 수정 및 커밋 중...")
+            # 4. 파일 수정 및 커밋 (한 번에 모든 파일 커밋)
+            logger.info("Step 4: 파일 수정 및 커밋 중...")
             modified_files = []
             file_changes = []  # 커밋할 파일 변경사항 모음
 
-            # 5-1. 기존 파일 수정 (내용만 준비, 아직 커밋하지 않음)
+            # 4-1. 기존 파일 수정 (내용만 준비, 아직 커밋하지 않음)
             for file_path in files_to_modify:
                 try:
                     # 현재 파일 내용 가져오기
@@ -332,7 +328,6 @@ class IssueProcessor:
 
                     # 집중된 프롬프트를 위한 컨텍스트 구성
                     context = {
-                        'structure': project_structure,
                         'guide_content': guide_content,
                         'file_config': file_config,
                         'relevant_functions': relevant_functions,
@@ -388,7 +383,7 @@ class IssueProcessor:
                     logger.error(f"파일 수정 실패 ({file_path}): {str(e)}")
                     result['errors'].append(f"파일 수정 실패 ({file_path}): {str(e)}")
 
-            # 5-2. 모든 파일 변경사항을 한 번에 커밋
+            # 4-2. 모든 파일 변경사항을 한 번에 커밋
             if file_changes:
                 try:
                     commit_message = f"[{issue.get('key')}] {issue.get('fields', {}).get('summary', 'SDB 기능 추가')}"
@@ -426,7 +421,7 @@ class IssueProcessor:
 
             result['modified_files'] = modified_files
             
-            # 6. Pull Request 생성
+            # 5. Pull Request 생성
             if modified_files:
                 logger.info("Step 6: Pull Request 생성 중...")
                 pr_title = f"[{issue.get('key')}] {issue.get('fields', {}).get('summary', 'SDB 기능 추가')}"
@@ -463,18 +458,17 @@ class IssueProcessor:
     def _generate_branch_name(self, issue: Dict) -> str:
         """이슈 정보를 바탕으로 브랜치 이름 생성"""
         issue_key = issue.get('key', 'UNKNOWN')
-        timestamp = datetime.now().strftime('%Y%m%d')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # 브랜치 이름에서 사용할 수 없는 문자 제거
         safe_key = issue_key.replace(' ', '-').replace('/', '-')
         
-        return f"feature/sdb-{safe_key}-{timestamp}"
+        return f"sdb-{safe_key}-{timestamp}"
     
     def _generate_pr_description(self, issue: Dict, modified_files: List[Dict]) -> str:
         """Pull Request 설명 생성"""
         issue_key = issue.get('key')
         issue_summary = issue.get('fields', {}).get('summary', '')
-        issue_description = issue.get('fields', {}).get('description', '')
 
         # 수정된 파일 목록
         file_list = "\n".join([
@@ -492,18 +486,18 @@ Material DB 추가 작업 (TARGET_FILES 기반 자동 처리)
 ### 수정된 파일:
 {file_list}
 
-## 상세 설명
-{issue_description}
+## 참고
+Jira 이슈에서 상세 내용을 확인하세요: [{issue_key}]
 
 ## 테스트 방법
 1. 이 브랜치를 체크아웃합니다: `git checkout {self._generate_branch_name(issue)}`
 2. 프로젝트를 빌드합니다
-3. SDB 기능이 정상적으로 추가되었는지 확인합니다
+3. 재질 DB가 정상적으로 추가되었는지 확인합니다
 
 ## 체크리스트
 - [ ] 코드가 정상적으로 컴파일됩니다
 - [ ] 기존 기능에 영향을 주지 않습니다
-- [ ] SDB 기능이 요구사항대로 구현되었습니다
+- [ ] 재질 DB가 요구사항대로 추가되었습니다
 
 ---
 이 PR은 자동으로 생성되었습니다.

@@ -10,9 +10,9 @@ Jira 이슈 기반 자동 소스코드 수정 및 Pull Request 생성 에이전�
 
 ### 핵심 기능
 1. **Jira Webhook 수신**: SDB 개발 요청 이슈 생성 시 자동 감지
-2. **프로젝트 구조 분석**: Bitbucket 저장소의 프로젝트 구조 자동 분석
+2. **TARGET_FILES 기반 파일 지정**: 수정 대상 파일을 명확하게 지정
 3. **LLM 기반 코드 생성**: OpenAI GPT를 활용한 코드 수정 및 생성
-4. **자동 브랜치 생성**: 이슈별 독립적인 feature 브랜치 생성
+4. **자동 브랜치 생성**: 이슈별 독립적인 feature 브랜치 생성 (timestamp 포함)
 5. **자동 커밋 및 PR 생성**: 수정사항 커밋 및 Pull Request 자동 생성
 
 ### 고급 기능 (신규)
@@ -196,13 +196,15 @@ Content-Type: application/json
 
 1. **이슈 생성**: Jira에서 SDB 개발 요청 이슈 생성
 2. **Webhook 수신**: Flask 앱이 webhook 페이로드 수신
-3. **브랜치 생성**: `feature/sdb-{issue-key}-{timestamp}` 형식으로 브랜치 생성
-4. **프로젝트 분석**: Bitbucket API로 프로젝트 구조 분석
-5. **코드 수정**: LLM을 활용하여 필요한 파일 수정/생성
-6. **커밋**: 수정사항을 브랜치에 커밋
+3. **브랜치 생성**: `feature/sdb-{issue-key}-{YYYYMMDD_HHMMSS}` 형식으로 브랜치 생성
+4. **파일 목록 로드**: TARGET_FILES 설정에서 수정 대상 파일 로드
+5. **코드 수정**: LLM과 Clang AST를 활용하여 필요한 파일 수정
+6. **다중 파일 커밋**: 모든 수정사항을 한 번에 브랜치에 커밋
 7. **PR 생성**: master 브랜치로 Pull Request 생성
 8. **검증**: 개발자가 로컬에서 브랜치 체크아웃 후 검증
 9. **머지**: 검증 완료 후 master에 머지
+
+> 📖 자세한 프로세스는 [PROCESS_FLOW.md](doc/PROCESS_FLOW.md)를 참조하세요.
 
 ## 문제 해결
 
