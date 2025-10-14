@@ -490,21 +490,40 @@ class IssueProcessor:
 
             logger.info(f"수정 대상 파일 {len(files_to_modify)}개: {', '.join(files_to_modify)}")
 
-            # 4. 파일 수정 및 커밋 (한 번에 모든 파일 커밋)
-            logger.info("Step 4: 파일 수정 및 커밋 중...")
+            # 4. 파일 수정 및 커밋 (한 번에 모든 파일 커밋) - 바이너리 모드
+            logger.info("Step 4: 파일 수정 및 커밋 중 (인코딩 유지 모드)...")
             modified_files = []
             file_changes = []  # 커밋할 파일 변경사항 모음
+
+            # EncodingHandler import
+            from app.encoding_handler import EncodingHandler
+            encoding_handler = EncodingHandler()
 
             # 4-1. 기존 파일 수정 (내용만 준비, 아직 커밋하지 않음)
             for file_path in files_to_modify:
                 try:
-                    # 현재 파일 내용 가져오기
-                    current_content = self.bitbucket_api.get_file_content(file_path, branch_name)
-                    if current_content is None:
+                    # ✅ 1. 바이너리로 파일 읽기
+                    current_content_bytes = self.bitbucket_api.get_file_content_raw(
+                        file_path, branch_name
+                    )
+
+                    if current_content_bytes is None:
                         logger.warning(f"파일을 찾을 수 없음: {file_path}")
                         continue
 
-                    # 파일별 구현 가이드 로드 (신규)
+                    # ✅ 2. 인코딩 감지
+                    original_encoding = encoding_handler.detect_encoding_with_hint(
+                        current_content_bytes, file_path
+                    )
+                    logger.info(f"파일 인코딩: {original_encoding} ({file_path})")
+
+                    # ✅ 3. 디코딩 (수정 작업용)
+                    current_content, detected_encoding = encoding_handler.decode_with_fallback(
+                        current_content_bytes,
+                        original_encoding
+                    )
+
+                    # 파일별 구현 가이드 로드
                     guide_content = self.load_guide_file(file_path)
 
                     # 파일 설정 가져오기 (신규)
@@ -561,10 +580,16 @@ class IssueProcessor:
                     # Diff 텍스트 생성 (테스트 출력용)
                     diff_text = self._generate_diff_text(current_content, modified_content, file_path)
 
-                    # 커밋할 파일 목록에 추가
+                    # ✅ 7. 원본 인코딩으로 다시 인코딩
+                    modified_content_bytes = encoding_handler.encode_preserving_original(
+                        modified_content,
+                        detected_encoding
+                    )
+
+                    # ✅ 8. 바이너리로 커밋 준비
                     file_changes.append({
                         'path': file_path,
-                        'content': modified_content,
+                        'content_bytes': modified_content_bytes,  # 바이너리!
                         'action': 'update'
                     })
 
@@ -572,46 +597,47 @@ class IssueProcessor:
                         'path': file_path,
                         'action': 'modified',
                         'diff_count': len(diffs),
-                        'modified_content': modified_content,  # 수정된 전체 내용
+                        'encoding': detected_encoding,
+                        'modified_content': modified_content,  # 수정된 전체 내용 (확인용)
                         'diff': diff_text  # Diff 텍스트
                     })
 
-                    logger.info(f"파일 수정 준비 완료: {file_path} ({len(diffs)}개 변경사항)")
+                    logger.info(f"파일 수정 준비 완료: {file_path} ({len(diffs)}개 변경사항, 인코딩: {detected_encoding})")
 
                 except Exception as e:
                     logger.error(f"파일 수정 실패 ({file_path}): {str(e)}")
                     result['errors'].append(f"파일 수정 실패 ({file_path}): {str(e)}")
 
-            # 4-2. 모든 파일 변경사항을 한 번에 커밋
+            # ✅ 4-2. 모든 파일 변경사항을 바이너리로 한 번에 커밋
             if file_changes:
                 try:
                     commit_message = f"[{issue.get('key')}] {issue.get('fields', {}).get('summary', 'SDB 기능 추가')}"
 
-                    # 전체 변경사항을 한 번에 커밋
-                    self.bitbucket_api.commit_multiple_files(
+                    # 바이너리 다중 파일 커밋 (인코딩 유지)
+                    self.bitbucket_api.commit_multiple_files_binary(
                         branch_name,
                         file_changes,
                         commit_message
                     )
 
-                    logger.info(f"모든 파일 변경사항 커밋 완료: {len(file_changes)}개 파일")
+                    logger.info(f"바이너리 모드로 커밋 완료: {len(file_changes)}개 파일 (인코딩 유지)")
 
                 except Exception as e:
                     logger.error(f"다중 파일 커밋 실패: {str(e)}")
                     result['errors'].append(f"다중 파일 커밋 실패: {str(e)}")
 
-                    # 커밋 실패 시 개별 커밋으로 폴백
-                    logger.info("개별 파일 커밋으로 폴백 시도...")
+                    # 커밋 실패 시 개별 바이너리 커밋으로 폴백
+                    logger.info("개별 바이너리 파일 커밋으로 폴백 시도...")
                     for file_change in file_changes:
                         try:
                             individual_commit_msg = f"[{issue.get('key')}] {file_change['path']} {file_change['action']}"
-                            self.bitbucket_api.commit_file(
+                            self.bitbucket_api.commit_file_binary(
                                 branch_name,
                                 file_change['path'],
-                                file_change['content'],
+                                file_change['content_bytes'],
                                 individual_commit_msg
                             )
-                            logger.info(f"개별 커밋 성공: {file_change['path']}")
+                            logger.info(f"개별 바이너리 커밋 성공: {file_change['path']}")
                         except Exception as individual_error:
                             logger.error(f"개별 커밋도 실패 ({file_change['path']}): {str(individual_error)}")
                             result['errors'].append(f"개별 커밋 실패 ({file_change['path']}): {str(individual_error)}")

@@ -197,28 +197,55 @@ class BitbucketAPI:
     
     def get_file_content(self, file_path: str, branch: str = "master") -> Optional[str]:
         """
-        파일 내용 가져오기
-        
+        파일 내용 가져오기 (텍스트 모드 - 하위 호환성)
+
         Args:
             file_path: 파일 경로
             branch: 브랜치 이름
-            
+
         Returns:
             파일 내용 (문자열) 또는 None
         """
         try:
             url = f"{self.repo_base}/src/{branch}/{file_path}"
             response = self.make_bitbucket_request(url)
-            
+
             if response.status_code == 404:
                 logger.info(f"파일이 존재하지 않음: {file_path}")
                 return None
-                
+
             response.raise_for_status()
             return response.text
-            
+
         except Exception as e:
             logger.error(f"파일 읽기 실패: {str(e)}")
+            raise
+
+    def get_file_content_raw(self, file_path: str, branch: str = "master") -> Optional[bytes]:
+        """
+        파일 내용을 바이너리로 가져오기 (인코딩 변환 없음)
+
+        Args:
+            file_path: 파일 경로
+            branch: 브랜치 이름
+
+        Returns:
+            파일 내용 (바이트) 또는 None
+        """
+        try:
+            url = f"{self.repo_base}/src/{branch}/{file_path}"
+            response = self.make_bitbucket_request(url)
+
+            if response.status_code == 404:
+                logger.info(f"파일이 존재하지 않음: {file_path}")
+                return None
+
+            response.raise_for_status()
+            # 바이너리로 반환 (인코딩 변환 안 함)
+            return response.content
+
+        except Exception as e:
+            logger.error(f"파일 읽기 실패 (바이너리): {str(e)}")
             raise
     
     def get_directory_listing(self, path: str = "", branch: str = "master") -> List[Dict]:
@@ -329,6 +356,77 @@ class BitbucketAPI:
             logger.error(f"파일 커밋 실패: {str(e)}")
             raise
 
+    def commit_file_binary(self, branch: str, file_path: str, content_bytes: bytes,
+                          message: str, parent_commit: Optional[str] = None) -> Dict:
+        """
+        바이너리 파일 커밋 (인코딩 유지)
+
+        Args:
+            branch: 브랜치 이름
+            file_path: 파일 경로
+            content_bytes: 파일 내용 (바이너리)
+            message: 커밋 메시지
+            parent_commit: 부모 커밋 해시 (선택사항)
+
+        Returns:
+            커밋 정보
+        """
+        try:
+            # 부모 커밋이 없으면 현재 브랜치의 최신 커밋을 가져옴
+            if not parent_commit:
+                ref_url = f"{self.repo_base}/refs/branches/{branch}"
+                response = self.make_bitbucket_request(ref_url)
+                response.raise_for_status()
+
+                try:
+                    branch_data = response.json()
+                    parent_commit = branch_data['target']['hash']
+                except (KeyError, requests.exceptions.JSONDecodeError) as e:
+                    logger.error(f"브랜치 정보 파싱 실패: {str(e)}")
+                    raise Exception(f"브랜치 '{branch}' 정보를 가져올 수 없습니다")
+
+            # 파일 커밋
+            url = f"{self.repo_base}/src"
+
+            # BytesIO를 사용하여 바이너리 전송
+            from io import BytesIO
+            files = {
+                file_path: (file_path, BytesIO(content_bytes), 'application/octet-stream')
+            }
+            data = {
+                'message': message,
+                'branch': branch,
+                'parents': parent_commit
+            }
+
+            response = self.make_bitbucket_request(
+                url,
+                method='POST',
+                data=data,
+                files=files
+            )
+            response.raise_for_status()
+
+            logger.info(f"바이너리 파일 커밋 완료: {file_path} on {branch}")
+
+            try:
+                if response.content:
+                    return response.json()
+                else:
+                    logger.warning("커밋 응답 본문이 비어있습니다.")
+                    return {"status": "success", "message": "Commit successful but no response data"}
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                return {
+                    "status": "success",
+                    "message": "Commit successful",
+                    "parse_error": str(e)
+                }
+
+        except Exception as e:
+            logger.error(f"바이너리 파일 커밋 실패: {str(e)}")
+            raise
+
     def commit_multiple_files(self, branch: str, file_changes: List[Dict],
                              message: str, parent_commit: Optional[str] = None) -> Dict:
         """
@@ -436,6 +534,113 @@ class BitbucketAPI:
 
         except Exception as e:
             logger.error(f"다중 파일 커밋 실패: {str(e)}")
+            raise
+
+    def commit_multiple_files_binary(self, branch: str, file_changes: List[Dict],
+                                     message: str, parent_commit: Optional[str] = None) -> Dict:
+        """
+        여러 바이너리 파일을 한 번에 커밋 (인코딩 유지)
+
+        Args:
+            branch: 브랜치 이름
+            file_changes: 파일 변경사항 리스트
+                [
+                    {
+                        "path": "src/file.cpp",
+                        "content_bytes": b"...",  # 바이너리 데이터
+                        "action": "update"
+                    }
+                ]
+            message: 커밋 메시지
+            parent_commit: 부모 커밋 해시 (선택사항)
+
+        Returns:
+            커밋 정보
+        """
+        try:
+            # 부모 커밋이 없으면 현재 브랜치의 최신 커밋을 가져옴
+            if not parent_commit:
+                ref_url = f"{self.repo_base}/refs/branches/{branch}"
+                response = self.make_bitbucket_request(ref_url)
+                response.raise_for_status()
+
+                try:
+                    branch_data = response.json()
+                    parent_commit = branch_data['target']['hash']
+                except (KeyError, requests.exceptions.JSONDecodeError) as e:
+                    logger.error(f"브랜치 정보 파싱 실패: {str(e)}")
+                    raise Exception(f"브랜치 '{branch}' 정보를 가져올 수 없습니다")
+
+            # 여러 파일 커밋
+            url = f"{self.repo_base}/src"
+
+            # 바이너리 파일들 준비
+            from io import BytesIO
+            files = {}
+            data = {
+                'message': message,
+                'branch': branch,
+                'parents': parent_commit
+            }
+
+            for file_change in file_changes:
+                file_path = file_change['path']
+                content_bytes = file_change.get('content_bytes')
+                action = file_change.get('action', 'update')
+
+                if action == 'delete':
+                    logger.warning(f"파일 삭제는 현재 미지원: {file_path}")
+                    continue
+
+                if content_bytes is None:
+                    logger.warning(f"파일 내용 없음: {file_path}")
+                    continue
+
+                # 바이너리로 전송
+                files[file_path] = (
+                    file_path,
+                    BytesIO(content_bytes),
+                    'application/octet-stream'
+                )
+
+            if not files:
+                logger.warning("커밋할 파일이 없습니다.")
+                return {}
+
+            response = self.make_bitbucket_request(
+                url,
+                method='POST',
+                data=data,
+                files=files
+            )
+            response.raise_for_status()
+
+            # 응답 파싱
+            try:
+                logger.info(f"커밋 응답 상태: {response.status_code}")
+                if response.content:
+                    commit_data = response.json()
+                    logger.info(f"JSON 파싱 성공")
+                else:
+                    logger.warning("커밋 응답 본문이 비어있습니다.")
+                    commit_data = {"status": "success", "message": "Commit successful but no response data"}
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {str(e)}")
+                commit_data = {
+                    "status": "success",
+                    "message": "Commit successful",
+                    "parse_error": str(e),
+                    "status_code": response.status_code
+                }
+
+            file_names = list(files.keys())
+            logger.info(f"다중 바이너리 파일 커밋 완료: {len(file_names)}개 파일 on {branch}")
+            logger.info(f"커밋된 파일들: {', '.join(file_names[:5])}{'...' if len(file_names) > 5 else ''}")
+
+            return commit_data
+
+        except Exception as e:
+            logger.error(f"다중 바이너리 파일 커밋 실패: {str(e)}")
             raise
 
     def create_pull_request(self, source_branch: str, destination_branch: str,

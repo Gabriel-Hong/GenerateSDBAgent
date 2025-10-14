@@ -438,9 +438,12 @@ action 타입:
         Returns:
             수정된 파일 내용
         """
+        # 원본의 줄바꿈 스타일 감지 (CRLF vs LF)
+        line_ending = '\r\n' if '\r\n' in content else '\n'
+
         # splitlines()를 사용하여 올바르게 줄 분리 (빈 줄 문제 방지)
         lines = content.splitlines(keepends=False)
-        
+
         # 원본의 마지막 줄바꿈 여부 확인
         ends_with_newline = content.endswith('\n') or content.endswith('\r\n')
 
@@ -467,13 +470,13 @@ action 타입:
                 # 특정 라인들 삭제
                 del lines[line_start:line_end+1]
 
-        # 결과를 합칠 때 원본의 줄바꿈 방식 유지
-        result = '\n'.join(lines)
-        
-        # 원본이 줄바꿈으로 끝났다면 마지막에 줄바꿈 추가
-        if ends_with_newline and not result.endswith('\n'):
-            result += '\n'
-        
+        # 결과를 합칠 때 원본의 줄바꿈 방식 유지 (CRLF or LF)
+        result = line_ending.join(lines)
+
+        # 원본이 줄바꿈으로 끝났다면 마지막에 원본 스타일의 줄바꿈 추가
+        if ends_with_newline and not result.endswith(('\n', '\r\n')):
+            result += line_ending
+
         return result
     
     def generate_new_file(self, file_path: str, issue_description: str, 

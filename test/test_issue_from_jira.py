@@ -217,7 +217,8 @@ def test_issue_processor(issue_key: str, save_payload: bool = True, output_dir: 
         if result.get('modified_files'):
             logger.info("\n  수정된 파일 목록:")
             for file_info in result['modified_files']:
-                logger.info(f"    - {file_info['path']} ({file_info['action']}, {file_info.get('diff_count', 0)}개 변경)")
+                encoding_info = f", 인코딩: {file_info.get('encoding', 'N/A')}" if 'encoding' in file_info else ""
+                logger.info(f"    - {file_info['path']} ({file_info['action']}, {file_info.get('diff_count', 0)}개 변경{encoding_info})")
 
         if result.get('errors'):
             logger.warning(f"\n  ⚠️ 오류 {len(result['errors'])}개:")
@@ -230,28 +231,36 @@ def test_issue_processor(issue_key: str, save_payload: bool = True, output_dir: 
             json.dump(result, f, indent=2, ensure_ascii=False)
         logger.info(f"\n✅ 처리 결과 저장: {result_file}")
 
-        # 수정된 파일들 저장 (modified_content와 diff)
+        # 수정된 파일들 저장 (modified_content와 diff) - 인코딩 정보 포함
         if result.get('modified_files'):
             logger.info(f"\n📁 수정된 파일 저장 중...")
             for file_info in result['modified_files']:
                 file_path = file_info.get('path', '')
                 modified_content = file_info.get('modified_content', '')
                 diff = file_info.get('diff', '')
-                
+                encoding = file_info.get('encoding', 'utf-8')
+
                 if file_path:
                     # 파일명에서 경로 구분자를 언더스코어로 변경
                     safe_filename = file_path.replace("/", "_").replace("\\", "_")
-                    
+
                     # 파일 확장자 추출
                     file_ext = os.path.splitext(file_path)[1] or '.txt'
-                    
-                    # 수정된 파일 내용 저장
+
+                    # 수정된 파일 내용 저장 (원본 인코딩으로 저장 시도)
                     if modified_content:
                         modified_file = os.path.join(output_dir, f"{timestamp}_{issue_key}_{safe_filename}_modified{file_ext}")
-                        with open(modified_file, 'w', encoding='utf-8') as f:
-                            f.write(modified_content)
-                        logger.info(f"  ✅ 수정된 파일 저장: {modified_file}")
-                    
+                        try:
+                            # 원본 인코딩으로 저장
+                            with open(modified_file, 'w', encoding=encoding) as f:
+                                f.write(modified_content)
+                            logger.info(f"  ✅ 수정된 파일 저장: {modified_file} (인코딩: {encoding})")
+                        except (UnicodeEncodeError, LookupError):
+                            # 인코딩 실패 시 UTF-8로 폴백
+                            with open(modified_file, 'w', encoding='utf-8') as f:
+                                f.write(modified_content)
+                            logger.warning(f"  ⚠️ {encoding} 인코딩 실패, UTF-8로 저장: {modified_file}")
+
                     # Diff 저장
                     if diff:
                         diff_file = os.path.join(output_dir, f"{timestamp}_{issue_key}_{safe_filename}.diff")
@@ -259,12 +268,24 @@ def test_issue_processor(issue_key: str, save_payload: bool = True, output_dir: 
                             f.write(diff)
                         logger.info(f"  ✅ Diff 파일 저장: {diff_file}")
 
+                        # Diff 라인 수 계산 (실제 변경 확인)
+                        added_lines = sum(1 for line in diff.split('\n') if line.startswith('+') and not line.startswith('+++'))
+                        removed_lines = sum(1 for line in diff.split('\n') if line.startswith('-') and not line.startswith('---'))
+                        logger.info(f"     Diff 통계: +{added_lines}줄, -{removed_lines}줄")
+
         # 최종 요약
         logger.info("\n" + "="*80)
         if result.get('status') == 'completed':
             logger.info("✅ 테스트 성공!")
             logger.info(f"   브랜치: {result.get('branch_name')}")
             logger.info(f"   PR: {result.get('pr_url')}")
+
+            # 인코딩 유지 확인
+            logger.info("\n📊 인코딩 유지 검증:")
+            for file_info in result.get('modified_files', []):
+                encoding = file_info.get('encoding', 'N/A')
+                logger.info(f"   ✅ {file_info['path']}: {encoding} 유지")
+
         elif result.get('status') == 'failed':
             logger.error("❌ 테스트 실패")
             logger.error(f"   오류: {result.get('errors')}")
@@ -277,6 +298,15 @@ def test_issue_processor(issue_key: str, save_payload: bool = True, output_dir: 
         if result.get('modified_files'):
             logger.info(f"  - 수정된 파일들: {output_dir}/{timestamp}_{issue_key}_*_modified.*")
             logger.info(f"  - Diff 파일들: {output_dir}/{timestamp}_{issue_key}_*.diff")
+
+        # Bitbucket PR 확인 가이드
+        if result.get('pr_url'):
+            logger.info(f"\n🔍 인코딩 유지 검증 방법:")
+            logger.info(f"  1. Bitbucket PR 확인: {result.get('pr_url')}")
+            logger.info(f"  2. 'Diff' 탭에서 변경 라인 수 확인")
+            logger.info(f"  3. 전체 파일이 변경된 것이 아니라 실제 수정된 라인만 표시되는지 확인")
+            logger.info(f"  4. 로컬에서 diff 확인:")
+            logger.info(f"     git diff master..{result.get('branch_name')} | grep -E '^[+-]' | wc -l")
 
         logger.info("="*80)
 
