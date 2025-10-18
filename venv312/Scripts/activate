@@ -40,10 +40,10 @@ deactivate nondestructive
 if [ "${OSTYPE:-}" = "cygwin" ] || [ "${OSTYPE:-}" = "msys" ] ; then
     # transform D:\path\to\venv to /d/path/to/venv on MSYS
     # and to /cygdrive/d/path/to/venv on Cygwin
-    export VIRTUAL_ENV=$(cygpath 'c:\MIDAS\10_Source\GenerateSDBAgent_Applying_k8s\venv312')
+    export VIRTUAL_ENV=$(cygpath 'C:\MIDAS\10_Source\GenerateSDBAgent\venv312')
 else
     # use the path as-is
-    export VIRTUAL_ENV='c:\MIDAS\10_Source\GenerateSDBAgent_Applying_k8s\venv312'
+    export VIRTUAL_ENV='C:\MIDAS\10_Source\GenerateSDBAgent\venv312'
 fi
 
 _OLD_VIRTUAL_PATH="$PATH"

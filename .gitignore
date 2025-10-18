@@ -23,12 +23,9 @@ MANIFEST
 
 # Virtual Environment
 venv/
-venv*/
 ENV/
 env/
 .venv
-venv312/
-venv-wsl/
 
 # Flask
 instance/
@@ -73,20 +70,3 @@ celerybeat.pid
 # Temporary files
 tmp/
 temp/
-
-# Kubernetes
-*.kubeconfig
-kubeconfig
-
-# Helm
-helm/**/charts/
-helm/**/.helmignore
-
-# Docker
-*.tar
-*.tar.gz
-
-# SSH keys
-*.pem
-*.key
-!*.pub

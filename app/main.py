@@ -80,103 +80,11 @@ def health_check():
     }), 200
 
 
-@app.route('/process', methods=['POST'])
-def process_handler():
-    """
-    Router Agent용 표준 처리 엔드포인트
-    
-    요청 형식:
-    {
-        "issue": {...},  # Jira 이슈 정보
-        "classification": {...},  # Router의 분류 결과
-        "metadata": {...}  # 추가 메타데이터
-    }
-    
-    응답 형식:
-    {
-        "status": "success" | "failed",
-        "issue_key": "PROJ-123",
-        "result": {...},
-        "agent": "sdb-agent",
-        "version": "1.0.0"
-    }
-    """
-    try:
-        payload = request.get_json()
-        
-        if not payload:
-            logger.error("페이로드가 비어있습니다.")
-            return jsonify({'error': '페이로드가 없습니다.'}), 400
-        
-        # Router Agent로부터 전달된 데이터 추출
-        issue = payload.get('issue', {})
-        classification = payload.get('classification', {})
-        metadata = payload.get('metadata', {})
-        
-        issue_key = issue.get('key', 'UNKNOWN')
-        
-        logger.info(f"Processing issue from Router: {issue_key}")
-        logger.info(f"Classification: {classification}")
-        logger.info(f"Metadata: {metadata}")
-        
-        # 기존 issue_processor 사용
-        result = issue_processor.process_issue(issue)
-        
-        return jsonify({
-            'status': result.get('status', 'completed'),
-            'issue_key': issue_key,
-            'result': result,
-            'agent': 'sdb-agent',
-            'version': '1.0.0'
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"처리 중 오류 발생: {str(e)}", exc_info=True)
-        return jsonify({
-            'status': 'failed',
-            'error': str(e),
-            'agent': 'sdb-agent',
-            'version': '1.0.0'
-        }), 500
-
-
-@app.route('/capabilities', methods=['GET'])
-def capabilities():
-    """
-    Agent 기능 목록
-    
-    응답:
-    {
-        "capabilities": ["sdb_generation", "material_db_addition", ...],
-        "supported_issue_types": ["SDB 개발 요청", ...],
-        "version": "1.0.0"
-    }
-    """
-    return jsonify({
-        'capabilities': [
-            'sdb_generation',
-            'material_db_addition',
-            'code_modification',
-            'bitbucket_pr_creation'
-        ],
-        'supported_issue_types': [
-            'SDB 개발 요청',
-            'Material DB 추가',
-            '코드 수정'
-        ],
-        'version': '1.0.0',
-        'description': 'SDB 개발 및 Material DB 추가 자동화 Agent'
-    }), 200
-
-
 @app.route('/webhook', methods=['POST'])
 def webhook_handler():
     """
-    Jira 웹훅 핸들러 (하위 호환성 유지)
+    Jira 웹훅 핸들러
     SDB 개발 요청 이슈가 생성되면 자동으로 처리
-    
-    Note: 이 엔드포인트는 하위 호환성을 위해 유지됩니다.
-          Multi-Agent 시스템에서는 /process 엔드포인트를 사용하세요.
     """
     try:
         # 웹훅 페이로드 파싱

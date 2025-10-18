@@ -1,68 +1,37 @@
+version: '3.8'
+
 services:
-  # Router Agent - Multi-Agent 시스템의 Orchestrator
-  router-agent:
-    build:
-      context: ./router-agent
-      dockerfile: Dockerfile
-    container_name: router-agent
+  sdb-agent:
+    build: .
+    container_name: sdb-generation-agent
     networks:
-      - agent-network
+      - sdb-network
     ports:
       - "5000:5000"
     environment:
-      # OpenAI 설정
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo-preview}
-      
-      # Router 설정
-      - ROUTER_TIMEOUT=${ROUTER_TIMEOUT:-300}
-      - CLASSIFICATION_CONFIDENCE_THRESHOLD=${CLASSIFICATION_CONFIDENCE_THRESHOLD:-0.5}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      
-      # SDB Agent 연결
-      - SDB_AGENT_URL=http://sdb-agent:5000
-    depends_on:
-      sdb-agent:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # SDB Agent - SDB 개발 및 Material DB 자동화
-  sdb-agent:
-    build:
-      context: ./sdb-agent
-      dockerfile: Dockerfile
-    container_name: sdb-agent
-    networks:
-      - agent-network
-    environment:
       # Flask 설정
-      - FLASK_ENV=${FLASK_ENV:-production}
-      - FLASK_DEBUG=0
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
       
-      # Bitbucket 설정
-      - BITBUCKET_URL=${BITBUCKET_URL:-https://api.bitbucket.org}
+      # Bitbucket 설정 (실제 값으로 교체 필요)
+      - BITBUCKET_URL=https://api.bitbucket.org
       - BITBUCKET_USERNAME=${BITBUCKET_USERNAME}
-      - BITBUCKET_ACCESS_TOKEN=${BITBUCKET_ACCESS_TOKEN}
-      - BITBUCKET_WORKSPACE=${BITBUCKET_WORKSPACE}
-      - BITBUCKET_REPOSITORY=${BITBUCKET_REPOSITORY}
+      - BITBUCKET_APP_PASSWORD=${BITBUCKET_APP_PASSWORD}
+      - WORKSPACE=${BITBUCKET_WORKSPACE}
+      - REPOSITORY_SLUG=${BITBUCKET_REPOSITORY}
       
-      # OpenAI 설정
+      # OpenAI 설정 (선택사항)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo-preview}
+      - OPENAI_MODEL=gpt-4-turbo-preview
       
-      # 테스트 모드
-      - TEST_MODE=${TEST_MODE:-false}
     volumes:
-      # 개발 중 코드 변경사항 실시간 반영 (옵션)
-      - ./sdb-agent/app:/app/app:ro
-      - ./sdb-agent/few_shot_examples.json:/app/few_shot_examples.json:ro
+      # 개발 중 코드 변경사항 실시간 반영
+      - ./app:/app/app
+      - ./few_shot_examples.json:/app/few_shot_examples.json
+      
     restart: unless-stopped
+    
+    # 헬스체크
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
@@ -70,21 +39,20 @@ services:
       retries: 3
       start_period: 40s
 
-  # Cloudflare Tunnel (옵션: 외부 접근용)
+  # Cloudflare Tunnel (Quick Tunnel - 임시 URL)
   cloudflared:
     image: cloudflare/cloudflared:latest
-    container_name: cloudflared-tunnel
+    container_name: sdb-agent-tunnel-quick
     networks:
-      - agent-network
-    command: tunnel --no-autoupdate --url http://router-agent:5000
+      - sdb-network
+    command: tunnel --no-autoupdate --url http://sdb-agent:5000
     depends_on:
-      router-agent:
+      sdb-agent:
         condition: service_healthy
     restart: unless-stopped
     profiles:
       - cloudflare
 
 networks:
-  agent-network:
+  sdb-network:
     driver: bridge
-    name: multi-agent-network
