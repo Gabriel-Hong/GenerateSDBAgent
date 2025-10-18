@@ -8,7 +8,7 @@ if defined _OLD_CODEPAGE (
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-set "VIRTUAL_ENV=C:\MIDAS\10_Source\GenerateSDBAgent\venv312"
+set "VIRTUAL_ENV=c:\MIDAS\10_Source\GenerateSDBAgent_Applying_k8s\venv312"
 
 if not defined PROMPT set PROMPT=$P$G
 

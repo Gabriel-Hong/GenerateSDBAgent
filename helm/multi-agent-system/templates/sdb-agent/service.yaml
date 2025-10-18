@@ -1,0 +1,19 @@
+{{- if .Values.sdbAgent.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.sdbAgent.name }}-svc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "sdb-agent.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.sdbAgent.service.type }}
+  selector:
+    app: {{ .Values.sdbAgent.name }}
+  ports:
+  - protocol: TCP
+    port: {{ .Values.sdbAgent.service.port }}
+    targetPort: {{ .Values.sdbAgent.service.targetPort }}
+    name: http
+{{- end }}
+

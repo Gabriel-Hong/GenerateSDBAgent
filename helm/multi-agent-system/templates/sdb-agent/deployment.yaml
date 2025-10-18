@@ -1,0 +1,99 @@
+{{- if .Values.sdbAgent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.sdbAgent.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "sdb-agent.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.sdbAgent.autoscaling.enabled }}
+  replicas: {{ .Values.sdbAgent.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ .Values.sdbAgent.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.sdbAgent.name }}
+        tier: worker
+        {{- include "multi-agent-system.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: {{ .Values.sdbAgent.name }}
+        image: {{ include "image.name" (dict "registry" .Values.imageRegistry.url "repository" .Values.sdbAgent.image.repository "tag" .Values.sdbAgent.image.tag) }}
+        imagePullPolicy: {{ .Values.imageRegistry.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.sdbAgent.service.targetPort }}
+          name: http
+          protocol: TCP
+        env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets.existingSecret }}
+              key: openai-api-key
+        - name: BITBUCKET_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets.existingSecret }}
+              key: bitbucket-access-token
+        - name: BITBUCKET_URL
+          valueFrom:
+            configMapKeyRef:
+              name: agent-config
+              key: BITBUCKET_URL
+        - name: BITBUCKET_WORKSPACE
+          valueFrom:
+            configMapKeyRef:
+              name: agent-config
+              key: BITBUCKET_WORKSPACE
+        - name: BITBUCKET_REPOSITORY
+          valueFrom:
+            configMapKeyRef:
+              name: agent-config
+              key: BITBUCKET_REPOSITORY
+        - name: OPENAI_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: agent-config
+              key: OPENAI_MODEL
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: agent-config
+              key: LOG_LEVEL
+        - name: TEST_MODE
+          value: {{ .Values.sdbAgent.env.testMode | quote }}
+        - name: BITBUCKET_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.secrets.existingSecret }}
+              key: bitbucket-username
+        resources:
+          {{- toYaml .Values.sdbAgent.resources | nindent 10 }}
+        {{- if .Values.sdbAgent.healthcheck.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.sdbAgent.healthcheck.path }}
+            port: {{ .Values.sdbAgent.service.targetPort }}
+          initialDelaySeconds: {{ .Values.sdbAgent.healthcheck.initialDelaySeconds }}
+          periodSeconds: {{ .Values.sdbAgent.healthcheck.periodSeconds }}
+          timeoutSeconds: {{ .Values.sdbAgent.healthcheck.timeoutSeconds }}
+          successThreshold: {{ .Values.sdbAgent.healthcheck.successThreshold }}
+          failureThreshold: {{ .Values.sdbAgent.healthcheck.failureThreshold }}
+        {{- end }}
+        {{- if .Values.sdbAgent.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.sdbAgent.readinessProbe.path }}
+            port: {{ .Values.sdbAgent.service.targetPort }}
+          initialDelaySeconds: {{ .Values.sdbAgent.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.sdbAgent.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.sdbAgent.readinessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.sdbAgent.readinessProbe.successThreshold }}
+          failureThreshold: {{ .Values.sdbAgent.readinessProbe.failureThreshold }}
+        {{- end }}
+{{- end }}
+
