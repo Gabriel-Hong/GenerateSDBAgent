@@ -1,0 +1,68 @@
+# Minikube 로컬 개발 환경용 설정
+
+global:
+  environment: local
+  namespace: agent-system
+
+imageRegistry:
+  url: docker.io
+  pullPolicy: IfNotPresent  # 로컬 이미지 사용
+
+routerAgent:
+  replicaCount: 1  # 로컬에서는 1개만
+  
+  image:
+    repository: router-agent
+    tag: "latest"
+  
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+  
+  autoscaling:
+    enabled: false  # 로컬에서는 오토스케일링 비활성화
+
+sdbAgent:
+  replicaCount: 1
+  
+  image:
+    repository: sdb-agent
+    tag: "latest"
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  
+  autoscaling:
+    enabled: false
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: agents.local
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: router-agent-svc
+              port: 5000
+  tls: []
+
+monitoring:
+  enabled: false
+
+networkPolicy:
+  enabled: false  # 로컬에서는 비활성화
+

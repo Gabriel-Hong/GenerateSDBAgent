@@ -1,303 +1,428 @@
-# SDB Generation Agent
+# Multi-Agent Development System
 
-Jira 이슈 기반 자동 소스코드 수정 및 Pull Request 생성 에이전트
+Jira 이슈 기반 자동 개발 Multi-Agent 시스템 (MoE 패턴)
 
 ## 개요
 
-이 프로젝트는 Jira에서 SDB(Screen Definition Block) 개발 요청 이슈가 생성되면, 자동으로 소스코드를 수정하고 Pull Request를 생성하는 에이전트입니다.
+본 프로젝트는 **Mixture of Experts (MoE) 패턴**을 적용한 Multi-Agent 시스템으로, Jira 이슈를 받아 자동으로 코드를 개발하고 Pull Request를 생성합니다. Router Agent가 중앙에서 이슈를 분류하고, 각 Specialized Agent가 특정 작업을 수행합니다.
 
-## 주요 기능
+### 핵심 특징
 
-### 핵심 기능
-1. **Jira Webhook 수신**: SDB 개발 요청 이슈 생성 시 자동 감지
-2. **TARGET_FILES 기반 파일 지정**: 수정 대상 파일을 명확하게 지정
-3. **LLM 기반 코드 생성**: OpenAI GPT를 활용한 코드 수정 및 생성
-4. **자동 브랜치 생성**: 이슈별 독립적인 feature 브랜치 생성 (timestamp 포함)
-5. **자동 커밋 및 PR 생성**: 수정사항 커밋 및 Pull Request 자동 생성
-
-### 고급 기능 (신규)
-6. **매크로 영역 처리**: #pragma region 섹션 자동 감지 및 매크로 추가
-7. **파일별 구현 가이드**: 각 파일에 맞는 커스텀 가이드 자동 로드
-8. **집중된 프롬프트**: 관련 함수만 추출하여 토큰 사용량 80% 절감
-9. **JSON 파싱 강화**: 제어 문자 자동 처리로 파싱 성공률 98%
-10. **Unified Diff 생성**: Git 스타일 diff로 변경사항 시각적 확인
+- 🎯 **Intent Classification**: LLM 기반 자동 이슈 분류
+- 🔀 **Smart Routing**: 적절한 Agent로 자동 라우팅
+- 📦 **독립적인 Agent**: 각 Agent가 독립적으로 배포/확장 가능
+- ☸️ **Kubernetes Ready**: Helm Chart로 쉬운 배포 및 관리
+- 🔄 **Auto-scaling**: 트래픽에 따른 자동 스케일링
 
 ## 시스템 아키텍처
 
 ```
-Jira → Webhook → Flask App (Docker) → Bitbucket API
-                      ↓
-┌─────────────────────────────────────────────┐
-│         LLM 기반 코드 수정 엔진             │
-├─────────────────────────────────────────────┤
-│ • Clang AST Parser (함수 추출)              │
-│ • 매크로 영역 추출 (신규)                   │
-│ • 파일별 가이드 로드 (신규)                 │
-│ • 집중된 프롬프트 생성 (신규)               │
-│ • JSON 파싱 강화 (신규)                     │
-│ • OpenAI GPT (코드 생성)                    │
-└─────────────────────────────────────────────┘
-                      ↓
-            수정된 코드 + Unified Diff
+┌─────────────────────────────────────────────────────────────┐
+│                        외부 시스템                           │
+│  ┌──────────┐     ┌──────────┐     ┌──────────┐           │
+│  │   Jira   │     │ Bitbucket│     │  Slack   │           │
+│  └────┬─────┘     └────┬─────┘     └────┬─────┘           │
+└───────┼────────────────┼────────────────┼─────────────────┘
+        │ Webhook        │ API            │ Notification
+        ↓                ↓                ↓
+┌─────────────────────────────────────────────────────────────┐
+│                    Kubernetes Cluster                        │
+│                                                               │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │  Ingress Controller (NGINX)                        │    │
+│  └──────────────────────┬─────────────────────────────┘    │
+│                         ↓                                    │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │         Router Agent (Orchestrator)                │    │
+│  │  ┌──────────────────────────────────────────────┐ │    │
+│  │  │  - Intent Classification (LLM)               │ │    │
+│  │  │  - Agent Registry                            │ │    │
+│  │  │  - Load Balancing                            │ │    │
+│  │  └──────────────────────────────────────────────┘ │    │
+│  │  Replicas: 3 (Auto-scaling)                       │    │
+│  └───────┬──────────┬──────────────────────────────────┘    │
+│          │          │                                         │
+│          ↓          ↓                                         │
+│  ┌──────────┐ ┌──────────┐  (향후 추가)                     │
+│  │   SDB    │ │  Code    │ ┌──────────┐ ┌──────────┐      │
+│  │  Agent   │ │  Review  │ │   Test   │ │   Doc    │      │
+│  │          │ │  Agent   │ │   Gen    │ │  Agent   │      │
+│  │ Pod x 2  │ │ Pod x 2  │ │ Pod x 2  │ │ Pod x 1  │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 설치 및 실행
+## 프로젝트 구조
 
-### 사전 요구사항
+```
+GenerateSDBAgent_Applying_k8s/
+├── router-agent/              # Router Agent (Orchestrator)
+│   ├── app/                   # FastAPI 애플리케이션
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── README.md
+│
+├── sdb-agent/                 # SDB Agent (Specialized)
+│   ├── app/                   # Flask 애플리케이션
+│   ├── doc/                   # 상세 문서
+│   ├── test/                  # 테스트 코드
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── README.md
+│
+├── helm/                      # Helm Charts
+│   └── multi-agent-system/
+│       ├── Chart.yaml
+│       ├── values.yaml        # 기본 설정
+│       ├── values-local.yaml  # Minikube용
+│       ├── values-production.yaml  # 프로덕션용
+│       └── templates/         # K8s 리소스 템플릿
+│
+├── scripts/                   # 배포/관리 스크립트
+│   ├── minikube-setup.sh     # Minikube 초기 설정
+│   ├── build-images.sh       # Docker 이미지 빌드
+│   ├── deploy-local.sh       # Docker Compose 배포
+│   ├── deploy-k8s-local.sh   # Minikube 배포
+│   ├── deploy-k8s-cloud.sh   # 클라우드 배포
+│   └── health-check.sh       # 헬스 체크
+│
+├── docker-compose.yml         # 로컬 개발용
+└── env.example               # 환경 변수 예시
+```
 
-- Docker 및 Docker Compose
-- Bitbucket 계정 및 App Password
-- OpenAI API Key (선택사항)
-- Jira 인스턴스 (Webhook 설정 필요)
+## 빠른 시작
 
-### 환경 설정
+### 1. 로컬 개발 (Docker Compose)
 
-1. 환경 변수 파일 생성:
+가장 빠르게 테스트할 수 있는 방법입니다.
+
 ```bash
+# 1. 환경 변수 설정
 cp env.example .env
+# .env 파일을 편집하여 실제 값 입력
+
+# 2. Docker 이미지 빌드
+bash scripts/build-images.sh
+
+# 3. 실행
+bash scripts/deploy-local.sh
+
+# 4. 접근
+curl http://localhost:5000/health
+curl http://localhost:5000/agents
 ```
 
-2. `.env` 파일 수정:
-```env
+### 2. Kubernetes (Minikube)
+
+로컬에서 Kubernetes 환경을 테스트합니다.
+
+```bash
+# 1. Minikube 설치 및 시작
+bash scripts/minikube-setup.sh
+
+# 2. Docker 이미지 빌드 (Minikube 환경에서)
+USE_MINIKUBE=true bash scripts/build-images.sh
+
+# 3. Kubernetes 배포
+bash scripts/deploy-k8s-local.sh
+
+# 4. 접근 (Port Forward)
+kubectl port-forward svc/router-agent-svc 5000:5000 -n agent-system
+
+# 또는 Ingress 사용
+# /etc/hosts에 추가: 127.0.0.1 agents.local
+# minikube tunnel
+# http://agents.local
+```
+
+### 3. 클라우드 배포 (GKE/EKS/AKS)
+
+프로덕션 환경에 배포합니다. `.env` 파일이 있으면 **Secret이 자동으로 생성**됩니다!
+
+```bash
+# 1. .env 파일 준비
+cp env.example .env
+vim .env  # 실제 값 입력 (⚠️ Bitbucket App Password 필수!)
+
+# 2. kubectl 컨텍스트 설정
+kubectl config use-context your-cluster
+
+# 3. Container Registry 설정
+export REGISTRY="your-registry.azurecr.io"
+export VERSION="1.0.0"
+
+# 4. 이미지 빌드 및 푸시
+PUSH_IMAGES=1 bash scripts/build-images.sh $VERSION $REGISTRY
+
+# 5. Helm 배포 (Secret 자동 생성!)
+REGISTRY=$REGISTRY VERSION=$VERSION bash scripts/deploy-k8s-cloud.sh
+```
+
+**자동화 특징:**
+- ✅ `.env` 파일에서 Secret 자동 생성
+- ✅ Bitbucket 토큰 타입 자동 검증 (ATCTT vs ATATT)
+- ✅ 배포 전 토큰 에러 방지
+
+**상세 가이드:**
+- [클라우드 Kubernetes 배포 가이드](./deploy/kubernetes-cloud-deploy.md)
+- [Secret 자동화 가이드](./KUBERNETES_SECRET_AUTOMATION.md)
+
+## 사전 준비사항
+
+### 로컬 개발 환경
+
+- **Docker Desktop** (Windows/Mac) 또는 Docker Engine (Linux)
+- **Docker Compose**
+
+### Kubernetes 환경
+
+#### Minikube (로컬)
+```bash
+# Windows (Chocolatey)
+choco install minikube kubernetes-cli kubernetes-helm
+
+# macOS (Homebrew)
+brew install minikube kubectl helm
+
+# Linux
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube
+```
+
+#### 클라우드
+- **GKE**: Google Kubernetes Engine
+- **EKS**: Amazon Elastic Kubernetes Service
+- **AKS**: Azure Kubernetes Service
+
+각 클라우드 제공자의 CLI 도구 설치:
+- GKE: `gcloud`
+- EKS: `aws` + `eksctl`
+- AKS: `az`
+
+### 필수 환경 변수
+
+```bash
+# OpenAI 설정
+OPENAI_API_KEY=sk-your-api-key
+
 # Bitbucket 설정
-BITBUCKET_USERNAME=your_username
-BITBUCKET_APP_PASSWORD=your_app_password
-BITBUCKET_WORKSPACE=your_workspace
-BITBUCKET_REPOSITORY=your_repository
-
-# OpenAI 설정 (선택사항)
-OPENAI_API_KEY=your_openai_api_key
+BITBUCKET_ACCESS_TOKEN=your-token
+BITBUCKET_WORKSPACE=your-workspace
+BITBUCKET_REPOSITORY=your-repository
 ```
 
-### 실행 방법
+## Agent 상세
 
-> 💡 **자세한 내용은 [DOCKER_GUIDE.md](doc/DOCKER_GUIDE.md)를 참조하세요.**
+### Router Agent
 
-1. **Docker Compose로 실행**:
+**역할**: 중앙 Orchestrator, Jira Webhook 수신 및 라우팅
+
+**기능**:
+- Intent Classification (LLM 기반)
+- Agent 선택 및 라우팅
+- 로드 밸런싱
+- 결과 수집 및 반환
+
+**엔드포인트**:
+- `GET /health`: 헬스 체크
+- `GET /agents`: Agent 목록
+- `POST /webhook`: Jira Webhook 수신
+- `POST /test-classification`: 분류 테스트
+
+**자세한 내용**: [router-agent/README.md](router-agent/README.md)
+
+### SDB Agent
+
+**역할**: SDB 개발 및 Material DB 추가 자동화
+
+**기능**:
+- C++ 소스코드 자동 수정
+- Material DB 추가
+- Bitbucket PR 자동 생성
+- 인코딩 보존 (EUC-KR 등)
+
+**엔드포인트**:
+- `GET /health`: 헬스 체크
+- `GET /capabilities`: 기능 목록
+- `POST /process`: 표준 처리 엔드포인트
+- `POST /webhook`: 직접 Webhook (레거시)
+
+**자세한 내용**: [sdb-agent/README.md](sdb-agent/README.md)
+
+## Helm Chart 사용법
+
+### 기본 설치
+
 ```bash
-docker-compose up -d
+helm install multi-agent-system ./helm/multi-agent-system \
+  --namespace agent-system \
+  --create-namespace
 ```
 
-2. **개발 모드로 실행** (ngrok 포함):
+### 환경별 설치
+
 ```bash
-docker-compose --profile development up
+# Minikube
+helm install multi-agent-system ./helm/multi-agent-system \
+  -f ./helm/multi-agent-system/values-local.yaml \
+  --namespace agent-system
+
+# Production
+helm install multi-agent-system ./helm/multi-agent-system \
+  -f ./helm/multi-agent-system/values-production.yaml \
+  --namespace agent-system
 ```
 
-3. **Cloudflare Tunnel로 실행** (권장):
+### 업그레이드
+
 ```bash
-docker-compose -f docker-compose.cloudflare.yml --profile quick up -d
+helm upgrade multi-agent-system ./helm/multi-agent-system \
+  -f ./helm/multi-agent-system/values-local.yaml \
+  --namespace agent-system
 ```
 
-4. **로그 확인**:
+### 삭제
+
 ```bash
+helm uninstall multi-agent-system --namespace agent-system
+```
+
+## 모니터링 및 운영
+
+### 로그 확인
+
+```bash
+# Kubernetes
+kubectl logs -f deployment/router-agent -n agent-system
+kubectl logs -f deployment/sdb-agent -n agent-system
+
+# Docker Compose
+docker-compose logs -f router-agent
 docker-compose logs -f sdb-agent
 ```
 
-## Webhook 설정
-
-### Jira Webhook 설정
-
-1. Jira 관리자 설정 → 시스템 → 웹훅으로 이동
-2. 새 웹훅 생성:
-   - URL: `http://your-server:5000/webhook`
-   - 이벤트: Issue created
-   - JQL: `issuetype = "SDB 개발 요청"` (필요에 따라 수정)
-
-### 로컬 테스트 옵션
-
-#### 옵션 1: Cloudflare Tunnel (권장 - 완전 무료)
-
-**Windows:**
-```powershell
-.\scripts\start-tunnel.ps1
-```
-
-**Linux/Mac:**
-```bash
-chmod +x scripts/start-tunnel.sh
-./scripts/start-tunnel.sh
-```
-
-Quick Tunnel을 선택하면 즉시 임시 URL이 생성됩니다.
-
-#### 옵션 2: Railway.app 배포 (무료 크레딧 제공)
-
-상세 가이드: [deploy/railway-deploy.md](deploy/railway-deploy.md)
+### 상태 확인
 
 ```bash
-# Railway CLI로 빠른 배포
-railway up
+# Kubernetes
+kubectl get all -n agent-system
+kubectl get hpa -n agent-system
+
+# Docker Compose
+docker-compose ps
 ```
-
-#### 옵션 3: ngrok 사용 (기존 방법)
-
-```bash
-# ngrok이 포함된 개발 프로파일로 실행
-docker-compose --profile development up
-
-# ngrok URL 확인
-docker-compose logs ngrok
-```
-
-## API 엔드포인트
 
 ### 헬스 체크
-```
-GET /health
-```
-
-### Webhook 수신
-```
-POST /webhook
-Content-Type: application/json
-
-{
-  "webhookEvent": "jira:issue_created",
-  "issue": {
-    "key": "PROJ-123",
-    "fields": {
-      "summary": "SDB 개발 요청",
-      "description": "상세 설명..."
-    }
-  }
-}
-```
-
-### 수동 이슈 처리 (테스트용)
-```
-POST /process-issue
-Content-Type: application/json
-
-{
-  "issue_key": "PROJ-123",
-  "summary": "SDB 개발 요청",
-  "description": "상세 설명..."
-}
-```
-
-## Few-shot Learning 설정
-
-`few_shot_examples.json` 파일을 수정하여 LLM에게 코드 수정 예제를 제공할 수 있습니다:
-
-```json
-{
-  "description": "예제 설명",
-  "input": "요구사항",
-  "output": "예상 결과",
-  "file_patterns": ["수정할 파일 패턴"],
-  "modification_example": {
-    "before": "수정 전 코드",
-    "after": "수정 후 코드"
-  }
-}
-```
-
-## 프로세스 플로우
-
-1. **이슈 생성**: Jira에서 SDB 개발 요청 이슈 생성
-2. **Webhook 수신**: Flask 앱이 webhook 페이로드 수신
-3. **브랜치 생성**: `feature/sdb-{issue-key}-{YYYYMMDD_HHMMSS}` 형식으로 브랜치 생성
-4. **파일 목록 로드**: TARGET_FILES 설정에서 수정 대상 파일 로드
-5. **코드 수정**: LLM과 Clang AST를 활용하여 필요한 파일 수정
-6. **다중 파일 커밋**: 모든 수정사항을 한 번에 브랜치에 커밋
-7. **PR 생성**: master 브랜치로 Pull Request 생성
-8. **검증**: 개발자가 로컬에서 브랜치 체크아웃 후 검증
-9. **머지**: 검증 완료 후 master에 머지
-
-> 📖 자세한 프로세스는 [PROCESS_FLOW.md](doc/PROCESS_FLOW.md)를 참조하세요.
-
-## 문제 해결
-
-### 일반적인 문제
-
-1. **Webhook이 수신되지 않음**:
-   - 방화벽 설정 확인
-   - ngrok URL이 올바른지 확인
-   - Jira webhook 로그 확인
-
-2. **Bitbucket API 오류**:
-   - App Password 권한 확인 (repository:write 필요)
-   - Repository 접근 권한 확인
-
-3. **LLM 응답 오류**:
-   - OpenAI API 키 확인
-   - API 사용량 제한 확인
-
-## 개발 가이드
-
-### 로컬 개발 환경 설정
 
 ```bash
-# 가상환경 생성
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 의존성 설치
-pip install -r requirements.txt
-
-# Flask 개발 서버 실행
-python -m flask run --debug
+bash scripts/health-check.sh
 ```
 
-### 테스트 실행
+## Minikube vs 클라우드
 
+### Minikube 장점
+✅ 로컬 개발 및 테스트
+✅ 비용 없음
+✅ 빠른 반복 개발
+✅ Kubernetes 학습
+
+### Minikube 제한사항
+❌ 단일 노드 (멀티 노드 시뮬레이션 제한적)
+❌ 실제 로드 밸런싱 불가
+❌ 프로덕션 스케일 테스트 불가
+❌ 실제 클라우드 스토리지 사용 불가
+
+### 클라우드 전환
+Minikube에서 개발한 Helm Chart와 YAML 파일을 **거의 그대로** 클라우드에 사용 가능합니다.
+
+**변경이 필요한 부분**:
+- Container Registry URL
+- Ingress 설정 (ALB, Cloud Load Balancer 등)
+- Storage Class
+- Node Selector / Affinity (선택)
+
+Helm의 `values-local.yaml`과 `values-production.yaml`로 쉽게 전환 가능합니다.
+
+## 트러블슈팅
+
+### Docker Compose
 ```bash
-# 단위 테스트
-pytest
+# 로그 확인
+docker-compose logs
 
-# 커버리지 포함
-pytest --cov=app
+# 재시작
+docker-compose restart
 
-# Material DB 수정 테스트 (신규)
-python test/test_material_db_modification.py
+# 완전 재구성
+docker-compose down
+docker-compose up --build
 ```
 
-## 📚 문서
+### Kubernetes
+```bash
+# Pod 상태 확인
+kubectl get pods -n agent-system
+kubectl describe pod <pod-name> -n agent-system
 
-### 핵심 문서
-- **[PROCESS_FLOW.md](doc/PROCESS_FLOW.md)**: 전체 프로세스 상세 가이드
-- **[NEW_FEATURES.md](doc/NEW_FEATURES.md)**: 신규 기능 상세 설명 ⭐
-- **[IMPLEMENTATION_SUMMARY.md](doc/IMPLEMENTATION_SUMMARY.md)**: 구현 요약
+# 로그 확인
+kubectl logs -f <pod-name> -n agent-system
 
-### 기술 문서
-- **[DOCKER_GUIDE.md](doc/DOCKER_GUIDE.md)**: Docker 배포 및 실행 가이드 🐳
-- **[CLANG_AST_GUIDE.md](doc/CLANG_AST_GUIDE.md)**: Clang AST 사용 가이드
-- **[LARGE_FILE_STRATEGY.md](doc/LARGE_FILE_STRATEGY.md)**: 대용량 파일 처리 전략
-- **[EMBEDDING_SIMILARITY_GUIDE.md](doc/EMBEDDING_SIMILARITY_GUIDE.md)**: 임베딩 유사도 검색
+# 이벤트 확인
+kubectl get events -n agent-system --sort-by='.lastTimestamp'
 
-### 구현 가이드
-- **[doc/guides/](doc/guides/)**: 파일별 구현 가이드
-  - DBCodeDef_guide.md
-  - MatlDB_guide.md
-  - DBLib_guide.md
-  - DgnDataCtrl_guide.md
+# Secret 확인
+kubectl get secrets -n agent-system
+```
 
-### 테스트 문서
-- **[test/README.md](test/README.md)**: 테스트 가이드
-- **[MANUAL_TESTING.md](doc/MANUAL_TESTING.md)**: 수동 테스트 가이드
+### Minikube
+```bash
+# 재시작
+minikube stop
+minikube start
 
-## 🆕 최신 업데이트 (2025-10-06)
+# 완전 재구성
+minikube delete
+bash scripts/minikube-setup.sh
 
-### 신규 기능
-- ✅ **매크로 영역 추출**: DBCodeDef.h 등 매크로 파일 자동 처리
-- ✅ **파일별 구현 가이드**: 각 파일 특성에 맞는 커스텀 가이드 자동 로드
-- ✅ **집중된 프롬프트**: 관련 함수만 추출하여 토큰 80% 절감
-- ✅ **JSON 파싱 강화**: 제어 문자 자동 처리, 파싱 성공률 98%
-- ✅ **Unified Diff**: Git 스타일 diff 생성으로 변경사항 시각화
+# 이미지 pull 실패 시
+eval $(minikube docker-env)
+bash scripts/build-images.sh
+```
 
-### 신규 모듈
-- `app/target_files_config.py`: 파일별 설정 중앙 관리
-- `app/prompt_builder.py`: 집중된 프롬프트 생성
-- `doc/NEW_FEATURES.md`: 신규 기능 상세 가이드
+## 향후 Agent 추가
 
-### 개선 효과
-- 토큰 사용량: 50K → 10K (**80% 절감**)
-- 처리 시간: 60초 → 30초 (**50% 단축**)
-- LLM 정확도: 70% → 95% (**25% 향상**)
-- JSON 파싱 성공률: 75% → 98% (**23% 향상**)
+새로운 Agent를 추가하려면:
 
-상세 내용은 [NEW_FEATURES.md](doc/NEW_FEATURES.md)를 참조하세요.
+1. **Agent 개발**: `{agent-name}/` 디렉터리 생성
+2. **Router 수정**: `router-agent/app/intent_classifier.py`에 분류 로직 추가
+3. **Registry 추가**: `router-agent/app/agent_registry.py`에 Agent 등록
+4. **Helm Chart 수정**: `helm/multi-agent-system/templates/`에 리소스 추가
+5. **배포**: Helm upgrade
+
+## 문서
+
+### 배포 가이드
+- [빠른 시작 가이드](QUICKSTART.md) - 5분 안에 시작하기
+- [Minikube 로컬 배포](MINIKUBE_DEPLOYMENT.md) - 로컬 Kubernetes 배포
+- [클라우드 Kubernetes 배포](deploy/kubernetes-cloud-deploy.md) - GKE/EKS/AKS 배포
+- [Cloudflare Tunnel 설정](deploy/cloudflare-tunnel.md) - 외부 접근 설정
+
+### Kubernetes Secret 관리
+- [Kubernetes Secret 자동화](KUBERNETES_SECRET_AUTOMATION.md) - Secret 자동 생성 가이드
+- [Kubernetes Secret 문제 해결](KUBERNETES_SECRET_TROUBLESHOOTING.md) - 토큰 타입 에러 해결
+
+### 아키텍처 및 개발
+- [Multi-Agent 아키텍처](doc/MULTI_AGENT_ARCHITECTURE.md)
+- [프로세스 플로우](sdb-agent/doc/PROCESS_FLOW.md)
+- [Docker 가이드](sdb-agent/doc/DOCKER_GUIDE.md)
+- [인코딩 처리](sdb-agent/doc/ENCODING_FIX_GUIDE.md)
+- [대용량 파일 처리](sdb-agent/doc/LARGE_FILE_STRATEGY.md)
 
 ## 라이선스
 
-이 프로젝트는 내부 사용을 위해 개발되었습니다.
+MIT License
+
+---
+
+**Version**: 1.0.0  
+**Last Updated**: 2025-10-16

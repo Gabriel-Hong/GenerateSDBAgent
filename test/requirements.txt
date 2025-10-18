@@ -1,0 +1,13 @@
+# Test dependencies for Router Agent
+# Based on router-agent/requirements.txt
+
+# HTTP client for test_router_debug.py
+requests>=2.31.0
+
+# Dependencies for test_router_internal.py
+fastapi==0.109.0
+httpx==0.26.0
+openai>=1.35.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
